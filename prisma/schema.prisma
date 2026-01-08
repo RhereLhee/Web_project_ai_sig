@@ -1,0 +1,633 @@
+// prisma/schema.prisma
+// TechTrade - Algorithm Trade Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum UserRole {
+  ADMIN
+  PARTNER
+  USER
+}
+
+enum PartnerStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  PENDING
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  QR_CODE
+  BANK_APP
+  CREDIT_CARD
+}
+
+enum CourseType {
+  TRADING
+  FINANCE
+}
+
+enum CourseAccess {
+  FREE      // ทุกคนดูได้
+  PRO       // เฉพาะคนซื้อ Signal
+  PARTNER   // เฉพาะ Partner
+}
+
+enum EventType {
+  SEMINAR
+  WORKSHOP
+  MEETUP
+  ZOOM
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  ATTENDED
+}
+
+enum SignalType {
+  CALL
+  PUT
+}
+
+enum SignalStatus {
+  ACTIVE
+  CLOSED
+  CANCELLED
+}
+
+// ============================================
+// USER & AUTHENTICATION
+// ============================================
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  phone         String?
+  password      String?
+  role          UserRole  @default(USER)
+  refreshToken  String?
+  tokenVersion  Int       @default(0)
+
+  // Referral System
+  referralCode String  @unique @default(cuid())
+  referredById String?
+  referredBy   User?   @relation("Referrals", fields: [referredById], references: [id])
+  referrals    User[]  @relation("Referrals")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts            Account[]
+  sessions            Session[]
+  partner             Partner?
+  signalSubscriptions SignalSubscription[]
+  orders              Order[]
+  commissions         Commission[]
+  progress            UserProgress[]
+  bookings            EventBooking[]
+  zoomSessions        ZoomSession[]        @relation("Instructor")
+  withdrawals         Withdrawal[]
+
+  @@index([email])
+  @@index([referralCode])
+  @@index([referredById])
+}
+
+// ============================================
+// PARTNER (เดิมคือ Subscription)
+// ============================================
+
+model Partner {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  // Bank Info (เก็บตอนสมัคร)
+  bankName      String
+  accountNumber String
+  accountName   String
+
+  // Status
+  status    PartnerStatus @default(PENDING)
+  startDate DateTime?
+  endDate   DateTime?
+
+  // Pricing: 200 บาท/เดือน = 20000 satang
+  price          Int @default(20000)
+  durationMonths Int @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders Order[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([endDate])
+}
+
+// ============================================
+// SIGNAL SUBSCRIPTION
+// ============================================
+
+model SignalSubscription {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  status    PartnerStatus @default(PENDING)
+  startDate DateTime?
+  endDate   DateTime?
+  price     Int           @default(250000) // 2,500 baht = 250000 satang
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([endDate])
+}
+
+// ============================================
+// ORDERS
+// ============================================
+
+model Order {
+  id          String  @id @default(cuid())
+  orderNumber String  @unique @default(cuid())
+  partnerId   String?
+  partner     Partner? @relation(fields: [partnerId], references: [id])
+  userId      String
+  user        User    @relation(fields: [userId], references: [id])
+
+  orderType      String  @default("PARTNER") // PARTNER or SIGNAL
+  originalAmount Int
+  discountAmount Int     @default(0)
+  affiliatePool  Int     @default(0)
+  finalAmount    Int
+
+  status        OrderStatus    @default(PENDING)
+  paymentMethod PaymentMethod?
+  paidAt        DateTime?
+  paymentRef    String?
+  qrCodeData    String?
+  slipUrl       String?
+  deviceType    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  affiliatePayment AffiliatePayment?
+
+  @@index([userId])
+  @@index([partnerId])
+  @@index([status])
+  @@index([orderNumber])
+}
+
+// ============================================
+// AFFILIATE SYSTEM
+// ============================================
+
+model AffiliatePayment {
+  id      String @id @default(cuid())
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  totalPool   Int
+  decayRate   Float
+  totalLevels Int
+  totalWeight Float
+
+  status        String    @default("PENDING")
+  distributedAt DateTime?
+  toCompany     Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+
+  commissions Commission[]
+
+  @@index([status])
+}
+
+model Commission {
+  id                 String           @id @default(cuid())
+  affiliatePaymentId String
+  affiliatePayment   AffiliatePayment @relation(fields: [affiliatePaymentId], references: [id])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  level            Int
+  weight           Float
+  normalizedWeight Float
+  amount           Int
+  amountBaht       Float
+
+  status  String    @default("PENDING")
+  paidAt  DateTime?
+  paidVia String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([status])
+  @@index([level])
+}
+
+// ============================================
+// COURSES & LEARNING
+// ============================================
+
+model Course {
+  id          String       @id @default(cuid())
+  title       String
+  slug        String       @unique
+  description String?      @db.Text
+  thumbnail   String?
+  type        CourseType   @default(TRADING)
+  access      CourseAccess @default(FREE)
+  order       Int          @default(0)
+  isPublished Boolean      @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  sections Section[]
+
+  @@index([type])
+  @@index([access])
+  @@index([isPublished])
+}
+
+model Section {
+  id       String @id @default(cuid())
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  title String
+  order Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  videos Video[]
+
+  @@index([courseId])
+}
+
+model Video {
+  id        String  @id @default(cuid())
+  sectionId String
+  section   Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String? @db.Text
+  url         String  @default("")
+  videoId     String?
+  provider    String  @default("youtube")
+  duration    Int?
+  order       Int     @default(0)
+  thumbnail   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  progress UserProgress[]
+
+  @@index([sectionId])
+}
+
+model UserProgress {
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+  videoId String
+  video   Video  @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  watchedSeconds Int       @default(0)
+  progress       Int       @default(0)
+  completed      Boolean   @default(false)
+  lastWatchedAt  DateTime  @default(now())
+  completedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, videoId])
+  @@index([userId])
+  @@index([completed])
+}
+
+// ============================================
+// EVENTS & ZOOM
+// ============================================
+
+model Event {
+  id          String    @id @default(cuid())
+  title       String
+  slug        String    @unique
+  description String?   @db.Text
+  type        EventType
+
+  startDate DateTime
+  endDate   DateTime?
+  timezone  String    @default("Asia/Bangkok")
+
+  location      String?
+  venue         String?
+  address       String? @db.Text
+  googleMapsUrl String?
+
+  maxSeats     Int?
+  currentSeats Int     @default(0)
+  price        Int     @default(0)
+  freeForSubs  Boolean @default(true)
+
+  thumbnail   String?
+  isPublished Boolean @default(false)
+  isFeatured  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings EventBooking[]
+
+  @@index([type])
+  @@index([startDate])
+  @@index([isPublished])
+}
+
+model EventBooking {
+  id      String @id @default(cuid())
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id])
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+
+  status     BookingStatus @default(PENDING)
+  seatNumber Int?
+  amountPaid Int           @default(0)
+  paidAt     DateTime?
+  checkInAt  DateTime?
+  checkInBy  String?
+  notes      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([eventId, userId])
+  @@index([eventId])
+  @@index([userId])
+  @@index([status])
+}
+
+model ZoomSession {
+  id          String  @id @default(cuid())
+  title       String
+  description String? @db.Text
+
+  scheduledAt DateTime
+  duration    Int?
+  timezone    String   @default("Asia/Bangkok")
+
+  instructorId String
+  instructor   User   @relation("Instructor", fields: [instructorId], references: [id])
+
+  zoomLink  String?
+  meetingId String?
+  passcode  String?
+
+  isFree       Boolean @default(true)
+  maxAttendees Int?
+  isPublished  Boolean @default(false)
+  isCompleted  Boolean @default(false)
+  recordingUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([scheduledAt])
+  @@index([instructorId])
+  @@index([isPublished])
+}
+
+// ============================================
+// SIGNALS
+// ============================================
+
+model Signal {
+  id         String     @id @default(cuid())
+  externalId String?    @unique
+  symbol     String
+  signalType SignalType
+
+  entryTime  DateTime
+  entryPrice Float
+  exitTime   DateTime?
+  exitPrice  Float?
+
+  confidence  Float?
+  probability Float?
+
+  status   SignalStatus @default(ACTIVE)
+  result   String?
+  profit   Float?
+  level    Int          @default(1)
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([symbol])
+  @@index([status])
+  @@index([createdAt])
+  @@index([signalType])
+}
+
+// ============================================
+// DYNAMIC ENTITY (EAV)
+// ============================================
+
+model EntityType {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  displayName String
+  description String?
+  schema      Json?
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entities Entity[]
+}
+
+model Entity {
+  id     String     @id @default(cuid())
+  typeId String
+  type   EntityType @relation(fields: [typeId], references: [id])
+
+  name      String
+  slug      String?
+  data      Json
+  isActive  Boolean   @default(true)
+  startDate DateTime?
+  endDate   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([typeId, slug])
+  @@index([typeId])
+  @@index([isActive])
+}
+
+// ============================================
+// WITHDRAWAL SYSTEM
+// ============================================
+
+model Withdrawal {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  amount        Int
+  bankName      String
+  accountNumber String
+  accountName   String
+
+  status          String    @default("PENDING")
+  approvedBy      String?
+  approvedAt      DateTime?
+  rejectedBy      String?
+  rejectedAt      DateTime?
+  rejectionReason String?
+
+  paidAt         DateTime?
+  transactionRef String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ============================================
+// SYSTEM
+// ============================================
+
+model SystemSetting {
+  id          String  @id @default(cuid())
+  key         String  @unique
+  value       Json
+  label       String?
+  description String?
+  group       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([group])
+}
+
+model AuditLog {
+  id        String  @id @default(cuid())
+  userId    String?
+  userEmail String?
+  action    String
+  entity    String
+  entityId  String?
+  oldData   Json?
+  newData   Json?
+  ip        String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  message   String    @db.Text
+  actionUrl String?
+  isRead    Boolean   @default(false)
+  readAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}

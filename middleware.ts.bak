@@ -1,0 +1,86 @@
+// middleware.ts
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+import { jwtVerify } from 'jose'
+
+const ACCESS_SECRET = new TextEncoder().encode(process.env.JWT_ACCESS_SECRET || 'access-secret-key-min-32-chars!!')
+
+// Routes ที่ต้อง login
+const protectedRoutes = ['/dashboard', '/signals', '/courses', '/profile', '/pricing', '/checkout', '/admin']
+// Routes ที่ห้ามเข้าถ้า login แล้ว
+const authRoutes = ['/login', '/register']
+
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+  
+  const accessToken = request.cookies.get('access_token')?.value
+  const refreshToken = request.cookies.get('refresh_token')?.value
+  
+  let isAuthenticated = false
+  
+  // ตรวจ access token
+  if (accessToken) {
+    try {
+      await jwtVerify(accessToken, ACCESS_SECRET)
+      isAuthenticated = true
+    } catch {
+      // Token หมดอายุหรือไม่ถูกต้อง
+    }
+  }
+  
+  // ถ้า access หมดอายุ แต่มี refresh → ลอง refresh
+  if (!isAuthenticated && refreshToken) {
+    // Redirect ไป refresh endpoint แล้วกลับมา
+    // หรือจะทำ refresh ใน middleware ก็ได้ แต่ซับซ้อนกว่า
+    // ในที่นี้เราปล่อยให้ client-side จัดการ refresh
+    
+    // ถ้าเป็น protected route → redirect ไป login
+    // Client จะ refresh token เอง
+  }
+  
+  // Protected routes - ต้อง login
+  const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route))
+  if (isProtectedRoute && !isAuthenticated && !refreshToken) {
+    const loginUrl = new URL('/login', request.url)
+    loginUrl.searchParams.set('callbackUrl', pathname)
+    return NextResponse.redirect(loginUrl)
+  }
+  
+  // Auth routes - ถ้า login แล้วไป dashboard
+  const isAuthRoute = authRoutes.some(route => pathname === route)
+  if (isAuthRoute && isAuthenticated) {
+    return NextResponse.redirect(new URL('/dashboard', request.url))
+  }
+  
+  // Admin routes - ต้องเป็น admin
+  if (pathname.startsWith('/admin')) {
+    if (!accessToken) {
+      return NextResponse.redirect(new URL('/login', request.url))
+    }
+    
+    try {
+      const { payload } = await jwtVerify(accessToken, ACCESS_SECRET)
+      if ((payload as any).role !== 'ADMIN') {
+        return NextResponse.redirect(new URL('/dashboard', request.url))
+      }
+    } catch {
+      return NextResponse.redirect(new URL('/login', request.url))
+    }
+  }
+  
+  return NextResponse.next()
+}
+
+export const config = {
+  matcher: [
+    '/dashboard/:path*',
+    '/signals/:path*',
+    '/courses/:path*',
+    '/profile/:path*',
+    '/pricing/:path*',
+    '/checkout/:path*',
+    '/admin/:path*',
+    '/login',
+    '/register',
+  ]
+}
