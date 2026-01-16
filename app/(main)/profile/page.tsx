@@ -1,3 +1,4 @@
+// app/(main)/profile/page.tsx
 import { getUserWithSubscription, hasActiveSubscription, hasSignalAccess } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import Link from "next/link"
@@ -89,6 +90,7 @@ export default async function ProfilePage() {
         <h2 className="font-semibold text-gray-900 mb-4">แพ็กเกจของคุณ</h2>
         
         <div className="grid md:grid-cols-2 gap-4">
+          {/* Signal Access */}
           <div className={`p-4 border-2 rounded-lg ${hasSignal ? 'border-emerald-500 bg-emerald-50' : 'border-gray-300 bg-gray-50'}`}>
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-semibold text-gray-900">Signal Access</h3>
@@ -107,16 +109,17 @@ export default async function ProfilePage() {
                 หมดอายุ: {new Date(user.signalSubscription.endDate).toLocaleDateString('th-TH')}
               </p>
             ) : (
-              <Link href="/pricing?type=signal" className="inline-block mt-2 text-sm font-medium text-emerald-600 hover:text-emerald-700">
+              <Link href="/signals" className="inline-block mt-2 text-sm font-medium text-emerald-600 hover:text-emerald-700">
                 ซื้อ Signal →
               </Link>
             )}
           </div>
 
-          <div className={`p-4 border-2 rounded-lg ${hasSub ? 'border-purple-500 bg-purple-50' : 'border-gray-300 bg-gray-50'}`}>
+          {/* Partner */}
+          <div className={`p-4 border-2 rounded-lg ${user.partner?.status === 'ACTIVE' ? 'border-purple-500 bg-purple-50' : 'border-gray-300 bg-gray-50'}`}>
             <div className="flex items-center justify-between mb-2">
-              <h3 className="font-semibold text-gray-900">PRO Subscription</h3>
-              {hasSub ? (
+              <h3 className="font-semibold text-gray-900">Partner</h3>
+              {user.partner?.status === 'ACTIVE' ? (
                 <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -126,13 +129,13 @@ export default async function ProfilePage() {
                 </svg>
               )}
             </div>
-            {hasSub && user.subscription?.endDate ? (
+            {user.partner?.status === 'ACTIVE' && user.partner?.endDate ? (
               <p className="text-sm text-gray-600">
-                หมดอายุ: {new Date(user.subscription.endDate).toLocaleDateString('th-TH')}
+                หมดอายุ: {new Date(user.partner.endDate).toLocaleDateString('th-TH')}
               </p>
             ) : (
-              <Link href="/pricing?type=pro" className="inline-block mt-2 text-sm font-medium text-purple-600 hover:text-purple-700">
-                สมัคร PRO →
+              <Link href="/partner" className="inline-block mt-2 text-sm font-medium text-purple-600 hover:text-purple-700">
+                สมัคร Partner →
               </Link>
             )}
           </div>
@@ -141,10 +144,10 @@ export default async function ProfilePage() {
 
       {/* Quick Actions */}
       <div className="grid md:grid-cols-2 gap-4">
-        <Link href="/profile/withdraw" className="card hover:shadow-lg transition-shadow group">
+        <Link href="/partner" className="card hover:shadow-lg transition-shadow group">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="font-semibold text-gray-900 group-hover:text-emerald-600 transition-colors">ถอนเงิน</h3>
+              <h3 className="font-semibold text-gray-900 group-hover:text-emerald-600 transition-colors">Partner Dashboard</h3>
               <p className="text-sm text-gray-600 mt-1">คงเหลือ ฿{(stats.balance / 100).toLocaleString()}</p>
             </div>
             <svg className="w-6 h-6 text-gray-400 group-hover:text-emerald-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -153,11 +156,11 @@ export default async function ProfilePage() {
           </div>
         </Link>
 
-        <Link href="/affiliate" className="card hover:shadow-lg transition-shadow group">
+        <Link href="/signals" className="card hover:shadow-lg transition-shadow group">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="font-semibold text-gray-900 group-hover:text-purple-600 transition-colors">Affiliate</h3>
-              <p className="text-sm text-gray-600 mt-1">ทีม {stats.referrals} คน</p>
+              <h3 className="font-semibold text-gray-900 group-hover:text-purple-600 transition-colors">Signal Room</h3>
+              <p className="text-sm text-gray-600 mt-1">ดู Signals ทั้งหมด</p>
             </div>
             <svg className="w-6 h-6 text-gray-400 group-hover:text-purple-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
