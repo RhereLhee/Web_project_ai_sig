@@ -142,3 +142,15 @@ export function verifyPromptPayPayload(payload: string): boolean {
   
   return providedCrc === calculatedCrc
 }
+/**
+ * สร้าง PromptPay QR Code เป็น Data URL
+ * @param promptPayId - เบอร์โทร หรือ เลขบัตรประชาชน
+ * @param amount - จำนวนเงิน (บาท)
+ */
+export async function generatePromptPayQR(
+  promptPayId: string,
+  amount: number
+): Promise<string> {
+  const payload = generatePayload(promptPayId, { amount })
+  return await generateQRCode(payload)
+}

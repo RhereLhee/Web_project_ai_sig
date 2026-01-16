@@ -27,7 +27,7 @@ export async function POST(
       where: { id },
       data: {
         status: 'APPROVED',
-        approvedBy: admin.userId,
+        approvedBy: admin?.id || null,  
         approvedAt: new Date(),
       },
     })

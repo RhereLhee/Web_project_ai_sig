@@ -6,7 +6,7 @@ import { distributeCommission } from '@/lib/affiliate'
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }  // ← แก้ตรงนี้
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await requireAdmin()
@@ -71,9 +71,9 @@ export async function POST(
 
     } else if (order.orderType === 'SIGNAL') {
       // Signal Order - ดึง months จาก metadata หรือ default 1 เดือน
-      const metadata = order.metadata as any
-      const months = metadata?.months || 1
-      const bonusMonths = metadata?.bonus || 0
+      const metadata = order.metadata as Record<string, unknown> | null
+      const months = (metadata?.months as number) || 1
+      const bonusMonths = (metadata?.bonus as number) || 0
       const totalMonths = months + bonusMonths
 
       const endDate = new Date(now)
@@ -86,7 +86,9 @@ export async function POST(
 
       if (existingSignal) {
         // Extend existing subscription
-        const currentEnd = existingSignal.endDate > now ? existingSignal.endDate : now
+        const currentEnd = existingSignal.endDate && existingSignal.endDate > now 
+          ? existingSignal.endDate 
+          : now
         const newEndDate = new Date(currentEnd)
         newEndDate.setMonth(newEndDate.getMonth() + totalMonths)
 

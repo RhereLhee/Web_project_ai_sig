@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/jwt"
 import { prisma } from "@/lib/prisma"
+import { generatePromptPayQR } from "@/lib/promptpay"
 
 // ============================================
 // Partner Plans - ราคา 199 บาท (satang)
@@ -88,8 +89,6 @@ export async function POST(req: NextRequest) {
     // Generate QR Code
     let qrCodeData = ''
     try {
-      // Dynamic import เพื่อไม่ให้ error ถ้ายังไม่มี lib
-      const { generatePromptPayQR } = await import('@/lib/promptpay')
       qrCodeData = await generatePromptPayQR(PROMPTPAY_ID, priceBaht)
     } catch (e) {
       console.error('QR generation error:', e)

@@ -27,7 +27,7 @@ export async function POST(
       where: { id },
       data: {
         status: 'REJECTED',
-        rejectedBy: admin.userId,
+        rejectedBy: admin?.id || null, 
         rejectedAt: new Date(),
       },
     })

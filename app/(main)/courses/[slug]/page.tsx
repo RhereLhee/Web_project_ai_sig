@@ -70,7 +70,7 @@ export default async function CoursePage({ params, searchParams }: Props) {
           {currentVideo && (
             <VideoPlayer
               video={currentVideo}
-              userId={user.id}
+              userId={user.userId}
               progress={progressMap.get(currentVideo.id)}
             />
           )}
