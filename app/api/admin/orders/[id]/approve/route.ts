@@ -6,7 +6,7 @@ import { distributeCommission } from '@/lib/affiliate'
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }  // ← แก้ตรงนี้
 ) {
   try {
     await requireAdmin()
