@@ -17,7 +17,6 @@ const SIGNAL_CONFIG = {
 }
 
 function getSignalPlan(planSlug: string) {
-  // Check if it's a signal plan (format: signal-Xm)
   const match = planSlug.match(/^signal-(\d+)m$/)
   if (!match) return null
 
@@ -58,7 +57,6 @@ export default async function CheckoutPage({
   const signalPlan = getSignalPlan(planSlug)
   
   if (signalPlan) {
-    // It's a signal plan
     return (
       <div className="max-w-2xl mx-auto space-y-6">
         <h1 className="text-2xl font-bold text-gray-900">ชำระเงิน</h1>
@@ -111,58 +109,6 @@ export default async function CheckoutPage({
     )
   }
 
-  // Try to get regular plan from DB
-  const plan = await prisma.plan.findUnique({
-    where: { slug: planSlug },
-  })
-
-  if (!plan || !plan.isActive) {
-    redirect("/pricing")
-  }
-
-  return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">ชำระเงิน</h1>
-
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Order Summary */}
-        <div className="card">
-          <h2 className="font-semibold text-gray-900 mb-4">รายละเอียด</h2>
-          
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-gray-600">แพ็กเกจ</span>
-              <span className="font-medium">{plan.name}</span>
-            </div>
-            
-            <div className="flex justify-between">
-              <span className="text-gray-600">ระยะเวลา</span>
-              <span className="font-medium">{plan.durationMonths} เดือน</span>
-            </div>
-            
-            {plan.promoExtraMonths > 0 && (
-              <div className="flex justify-between text-emerald-600">
-                <span>โบนัส</span>
-                <span className="font-medium">+{plan.promoExtraMonths} เดือนฟรี</span>
-              </div>
-            )}
-            
-            <div className="border-t pt-3 flex justify-between items-center">
-              <span className="font-semibold">ยอดรวม</span>
-              <span className="text-2xl font-bold text-emerald-600">
-                ฿{plan.finalPrice.toLocaleString()}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Payment Form */}
-        <CheckoutForm 
-          plan={plan} 
-          user={user} 
-          isSignalPlan={false}
-        />
-      </div>
-    </div>
-  )
+  // ถ้าไม่ใช่ Signal Plan → redirect ไปหน้า pricing
+  redirect("/pricing")
 }
