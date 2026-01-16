@@ -131,7 +131,7 @@ export default async function WithdrawPage() {
                 <div>
                   <p className="font-medium">฿{(withdraw.amount / 100).toLocaleString()}</p>
                   <p className="text-xs text-gray-500">
-                    {withdraw.bankName} - {withdraw.accountNumber}
+                    {withdraw.accountName} - {withdraw.accountNumber}
                   </p>
                   <p className="text-xs text-gray-400">
                     {new Date(withdraw.createdAt).toLocaleDateString('th-TH')}
