@@ -83,5 +83,5 @@ export default async function SignalsPage() {
   // ============================================
   // ถ้ามี Signal แล้ว → แสดง Signal Room
   // ============================================
-  return <SignalRoomContent user={user} />
+  return <SignalRoomContent user={user as any} />
 }
