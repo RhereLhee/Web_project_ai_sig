@@ -42,7 +42,7 @@ export default async function CoursePage({ params, searchParams }: Props) {
   const course = await getCourse(params.slug)
   if (!course) notFound()
 
-  const progress = await getUserProgress(user.id, course.id)
+  const progress = await getUserProgress(user.userId, course.id)
   const progressMap = new Map(progress.map(p => [p.videoId, p]))
 
   // Find current video
