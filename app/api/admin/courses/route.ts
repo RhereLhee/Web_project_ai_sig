@@ -1,3 +1,4 @@
+// app/api/admin/courses/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth'
@@ -6,30 +7,30 @@ function generateSlug(title: string): string {
   return title
     .toLowerCase()
     .replace(/[^a-z0-9ก-๙]+/g, '-')
-    .replace(/^-|-$/g, '')
+    .replace(/^-|-$/g, '') + '-' + Date.now().toString(36)
 }
 
 export async function POST(request: NextRequest) {
   try {
     await requireAdmin()
 
-    const { title, description, isPro } = await request.json()
+    const { title, description, type, access, isPublished } = await request.json()
 
     if (!title) {
       return NextResponse.json({ error: 'กรุณากรอกชื่อคอร์ส' }, { status: 400 })
     }
 
-    const slug = generateSlug(title) + '-' + Date.now().toString(36)
     const maxOrder = await prisma.course.aggregate({ _max: { order: true } })
 
     const course = await prisma.course.create({
       data: {
         title,
-        slug,
+        slug: generateSlug(title),
         description,
-        isPro: isPro ?? true,
+        type: type || 'TRADING',
+        access: access || 'FREE',
+        isPublished: isPublished ?? true,
         order: (maxOrder._max.order || 0) + 1,
-        isPublished: true,
       },
     })
 

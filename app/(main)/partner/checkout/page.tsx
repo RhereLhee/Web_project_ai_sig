@@ -1,12 +1,14 @@
+// app/(main)/partner/checkout/page.tsx
 import { getUserWithSubscription } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { PartnerCheckoutForm } from "./PartnerCheckoutForm"
 
+// ราคาใหม่ 199 บาท
 const PARTNER_PLANS = [
-  { months: 1, price: 200, bonus: 0 },
-  { months: 3, price: 600, bonus: 0 },
-  { months: 6, price: 1200, bonus: 1 },
-  { months: 12, price: 2400, bonus: 2 },
+  { months: 1, price: 199, bonus: 0 },
+  { months: 3, price: 499, bonus: 1 },
+  { months: 6, price: 899, bonus: 2 },
+  { months: 12, price: 1499, bonus: 3 },
 ]
 
 interface Props {
@@ -27,17 +29,22 @@ export default async function PartnerCheckoutPage({ searchParams }: Props) {
       <h1 className="text-2xl font-bold text-gray-900 mb-6">สมัคร Partner</h1>
 
       {/* Selected Plan */}
-      <div className="card bg-purple-50 border-purple-200 mb-6">
+      <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
         <div className="flex justify-between items-center">
           <div>
-            <p className="text-purple-700 text-sm">แพ็กเกจที่เลือก</p>
-            <p className="text-xl font-bold text-purple-900">
+            <p className="text-gray-500 text-sm">แพ็คเกจที่เลือก</p>
+            <p className="text-xl font-bold text-gray-900">
               {plan.months} เดือน
-              {plan.bonus > 0 && <span className="text-emerald-600 text-sm ml-2">+{plan.bonus} ฟรี!</span>}
+              {plan.bonus > 0 && <span className="text-emerald-600 text-sm ml-2">+{plan.bonus} ฟรี</span>}
             </p>
           </div>
           <div className="text-right">
-            <p className="text-3xl font-bold text-purple-900">฿{plan.price}</p>
+            <p className="text-3xl font-bold text-gray-900">฿{plan.price}</p>
+            {plan.months > 1 && (
+              <p className="text-xs text-gray-400">
+                เฉลี่ย ฿{Math.round(plan.price / (plan.months + plan.bonus))}/เดือน
+              </p>
+            )}
           </div>
         </div>
       </div>

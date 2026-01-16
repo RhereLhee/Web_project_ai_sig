@@ -11,7 +11,8 @@ export function CourseForm() {
     title: '',
     description: '',
     type: 'TRADING',
-    requiresSubscription: true,
+    access: 'FREE',
+    isPublished: true,
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -27,9 +28,11 @@ export function CourseForm() {
 
       if (res.ok) {
         setOpen(false)
+        setFormData({ title: '', description: '', type: 'TRADING', access: 'FREE', isPublished: true })
         router.refresh()
       } else {
-        alert('เกิดข้อผิดพลาด')
+        const data = await res.json()
+        alert(data.error || 'เกิดข้อผิดพลาด')
       }
     } catch {
       alert('เกิดข้อผิดพลาด')
@@ -40,7 +43,10 @@ export function CourseForm() {
 
   return (
     <>
-      <button onClick={() => setOpen(true)} className="btn btn-primary">
+      <button 
+        onClick={() => setOpen(true)} 
+        className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800"
+      >
         + สร้างคอร์สใหม่
       </button>
 
@@ -56,7 +62,7 @@ export function CourseForm() {
                   type="text"
                   value={formData.title}
                   onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  className="input"
+                  className="w-full px-3 py-2 border rounded-lg"
                   required
                 />
               </div>
@@ -66,7 +72,7 @@ export function CourseForm() {
                 <textarea
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="input"
+                  className="w-full px-3 py-2 border rounded-lg"
                   rows={3}
                 />
               </div>
@@ -76,28 +82,49 @@ export function CourseForm() {
                 <select
                   value={formData.type}
                   onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                  className="input"
+                  className="w-full px-3 py-2 border rounded-lg"
                 >
                   <option value="TRADING">การเทรด</option>
                   <option value="FINANCE">การเงิน</option>
                 </select>
               </div>
 
+              <div>
+                <label className="block text-sm font-medium mb-1">สิทธิ์การเข้าถึง</label>
+                <select
+                  value={formData.access}
+                  onChange={(e) => setFormData({ ...formData, access: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg"
+                >
+                  <option value="FREE">FREE - ทุกคนดูได้</option>
+                  <option value="PRO">PRO - เฉพาะคนซื้อ Signal</option>
+                  <option value="PARTNER">PARTNER - เฉพาะ Partner</option>
+                </select>
+              </div>
+
               <label className="flex items-center space-x-2">
                 <input
                   type="checkbox"
-                  checked={!formData.requiresSubscription}
-                  onChange={(e) => setFormData({ ...formData, requiresSubscription: !e.target.checked })}
-                  className="w-4 h-4"
+                  checked={formData.isPublished}
+                  onChange={(e) => setFormData({ ...formData, isPublished: e.target.checked })}
+                  className="w-4 h-4 rounded"
                 />
-                <span className="text-sm">คอร์สฟรี (ไม่ต้อง subscription)</span>
+                <span className="text-sm">เผยแพร่ทันที</span>
               </label>
 
               <div className="flex space-x-2 pt-4">
-                <button type="button" onClick={() => setOpen(false)} className="btn btn-outline flex-1">
+                <button 
+                  type="button" 
+                  onClick={() => setOpen(false)} 
+                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                >
                   ยกเลิก
                 </button>
-                <button type="submit" disabled={loading} className="btn btn-primary flex-1">
+                <button 
+                  type="submit" 
+                  disabled={loading} 
+                  className="flex-1 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50"
+                >
                   {loading ? 'กำลังสร้าง...' : 'สร้างคอร์ส'}
                 </button>
               </div>

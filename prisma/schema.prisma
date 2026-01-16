@@ -1,5 +1,6 @@
 // prisma/schema.prisma
 // TechTrade - Algorithm Trade Platform
+// Updated with Security Features + Forward Test + Withdrawal OTP
 
 generator client {
   provider = "prisma-client-js"
@@ -77,6 +78,13 @@ enum SignalStatus {
   CANCELLED
 }
 
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  PAID
+  REJECTED
+}
+
 // ============================================
 // USER & AUTHENTICATION
 // ============================================
@@ -125,11 +133,25 @@ model User {
   email         String?   @unique
   emailVerified DateTime?
   image         String?
-  phone         String?
+  phone         String?   @unique
+  phoneVerified Boolean   @default(false)
   password      String?
   role          UserRole  @default(USER)
   refreshToken  String?
   tokenVersion  Int       @default(0)
+
+  // ============================================
+  // SECURITY FIELDS
+  // ============================================
+  
+  twoFactorSecret  String?
+  twoFactorEnabled Boolean   @default(false)
+  
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+  
+  lastLoginAt DateTime?
+  lastLoginIp String?
 
   // Referral System
   referralCode String  @unique @default(cuid())
@@ -150,14 +172,161 @@ model User {
   bookings            EventBooking[]
   zoomSessions        ZoomSession[]        @relation("Instructor")
   withdrawals         Withdrawal[]
+  loginHistories      LoginHistory[]
+  devices             UserDevice[]
 
   @@index([email])
+  @@index([phone])
   @@index([referralCode])
   @@index([referredById])
 }
 
 // ============================================
-// PARTNER (เดิมคือ Subscription)
+// OTP VERIFICATION
+// ============================================
+
+model OtpVerification {
+  id        String   @id @default(cuid())
+  phone     String
+  code      String
+  type      String   @default("REGISTER")
+  attempts  Int      @default(0)
+  verified  Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([phone])
+  @@index([phone, code])
+  @@index([expiresAt])
+}
+
+// ============================================
+// USER DEVICE (Device Binding)
+// ============================================
+
+model UserDevice {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  fingerprint String
+  name        String?
+  userAgent   String?  @db.Text
+  browser     String?
+  os          String?
+  deviceType  String?
+  isMobile    Boolean  @default(false)
+  
+  lastIp      String?
+  lastUsedAt  DateTime @default(now())
+  
+  isActive    Boolean  @default(true)
+  isTrusted   Boolean  @default(false)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, fingerprint])
+  @@index([userId])
+  @@index([fingerprint])
+  @@index([isActive])
+}
+
+// ============================================
+// LOGIN HISTORY
+// ============================================
+
+model LoginHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  ip        String?
+  userAgent String?
+  device    String?
+  location  String?
+  
+  success   Boolean
+  failReason String?
+  
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([ip])
+  @@index([createdAt])
+}
+
+// ============================================
+// ADMIN IP WHITELIST
+// ============================================
+
+model AdminWhitelist {
+  id          String   @id @default(cuid())
+  ip          String   @unique
+  description String?
+  addedBy     String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([ip])
+  @@index([isActive])
+}
+
+// ============================================
+// RATE LIMIT TRACKING
+// ============================================
+
+model RateLimitLog {
+  id        String   @id @default(cuid())
+  key       String
+  action    String
+  count     Int      @default(1)
+  windowStart DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([key, action, windowStart])
+  @@index([key, action])
+  @@index([windowStart])
+}
+
+// ============================================
+// FORWARD TEST
+// ============================================
+
+model ForwardSequence {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  symbol      String
+  signalType  String
+  entryTime   DateTime
+  tradesUsed  Int      @default(1)
+  wonAtLevel  Int      @default(0)
+  isWin       Boolean  @default(false)
+  totalProfit Float    @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([symbol])
+  @@index([entryTime])
+  @@index([isWin])
+  @@index([createdAt])
+}
+
+// ============================================
+// SYMBOL CONFIG
+// ============================================
+
+model SymbolConfig {
+  id        String   @id @default(cuid())
+  symbol    String   @unique
+  enabled   Boolean  @default(true)
+  threshold Float    @default(0.82)
+  notes     String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+// ============================================
+// PARTNER
 // ============================================
 
 model Partner {
@@ -165,24 +334,29 @@ model Partner {
   userId String @unique
   user   User   @relation(fields: [userId], references: [id])
 
-  // Bank Info (เก็บตอนสมัคร)
+  // Bank Info
   bankName      String
   accountNumber String
   accountName   String
-
+  
+  // Withdrawal Phone Lock
+  withdrawPhone          String?    // เบอร์ที่ล็อคสำหรับถอนเงิน
+  withdrawPhoneLockedAt  DateTime?  // วันที่ล็อคเบอร์
+  
   // Status
   status    PartnerStatus @default(PENDING)
   startDate DateTime?
   endDate   DateTime?
 
-  // Pricing: 200 บาท/เดือน = 20000 satang
-  price          Int @default(20000)
+  // Pricing: 199 บาท/เดือน = 19900 satang
+  price          Int @default(19900)
   durationMonths Int @default(1)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  orders Order[]
+  orders      Order[]
+  withdrawals Withdrawal[]
 
   @@index([userId])
   @@index([status])
@@ -201,7 +375,7 @@ model SignalSubscription {
   status    PartnerStatus @default(PENDING)
   startDate DateTime?
   endDate   DateTime?
-  price     Int           @default(250000) // 2,500 baht = 250000 satang
+  price     Int           @default(250000)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -223,7 +397,7 @@ model Order {
   userId      String
   user        User    @relation(fields: [userId], references: [id])
 
-  orderType      String  @default("PARTNER") // PARTNER or SIGNAL
+  orderType      String  @default("PARTNER")
   originalAmount Int
   discountAmount Int     @default(0)
   affiliatePool  Int     @default(0)
@@ -233,9 +407,10 @@ model Order {
   paymentMethod PaymentMethod?
   paidAt        DateTime?
   paymentRef    String?
-  qrCodeData    String?
+  qrCodeData    String?        @db.Text
   slipUrl       String?
   deviceType    String?
+  metadata      Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -551,30 +726,40 @@ model Entity {
 // ============================================
 
 model Withdrawal {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
+  id               String @id @default(cuid())
+  withdrawalNumber String @unique @default(cuid())
+  
+  userId    String
+  user      User    @relation(fields: [userId], references: [id])
+  partnerId String
+  partner   Partner @relation(fields: [partnerId], references: [id])
 
-  amount        Int
-  bankName      String
+  amount     Int      // satang
+  amountBaht Float    // บาท
+  
+  bankCode      String
   accountNumber String
   accountName   String
+  phone         String   // เบอร์ที่ยืนยัน OTP
 
-  status          String    @default("PENDING")
-  approvedBy      String?
-  approvedAt      DateTime?
-  rejectedBy      String?
-  rejectedAt      DateTime?
-  rejectionReason String?
-
+  status WithdrawalStatus @default(PENDING)
+  
+  // Admin fields
+  approvedBy     String?
+  approvedAt     DateTime?
+  rejectedBy     String?
+  rejectedAt     DateTime?
+  rejectedReason String?
   paidAt         DateTime?
-  transactionRef String?
+  paymentRef     String?   // เลขอ้างอิงการโอน
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([userId])
+  @@index([partnerId])
   @@index([status])
+  @@index([withdrawalNumber])
 }
 
 // ============================================

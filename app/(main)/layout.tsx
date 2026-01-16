@@ -1,3 +1,4 @@
+// app/(main)/layout.tsx
 import { getUserWithSubscription, hasActivePartner, hasSignalAccess } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { Sidebar } from "@/components/Sidebar"
@@ -21,10 +22,16 @@ export default async function MainLayout({ children }: { children: React.ReactNo
         hasSignal={hasSignal} 
       />
       
+      {/* Main Content */}
       <main className="md:ml-64 flex-1 flex flex-col">
+        {/* Spacer for mobile header */}
+        <div className="h-14 md:h-0 flex-shrink-0" />
+        
+        {/* Content */}
         <div className="flex-1 p-4 md:p-6 max-w-6xl mx-auto w-full">
           {children}
         </div>
+        
         <Footer />
       </main>
     </div>

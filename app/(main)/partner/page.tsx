@@ -1,3 +1,4 @@
+// app/(main)/partner/page.tsx
 import Link from "next/link"
 import { getUserWithSubscription } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
@@ -69,14 +70,14 @@ async function getTeam(userId: string) {
 }
 
 // ============================================
-// Partner Plans
+// Partner Plans - ราคาใหม่ ฿199
 // ============================================
 
 const PARTNER_PLANS = [
-  { months: 1, price: 200, bonus: 0 },
-  { months: 3, price: 600, bonus: 0, popular: true },
-  { months: 6, price: 1200, bonus: 1 },
-  { months: 12, price: 2400, bonus: 2 },
+  { months: 1, price: 199, bonus: 0 },
+  { months: 3, price: 499, bonus: 1,},
+  { months: 6, price: 899, bonus: 2 },
+  { months: 12, price: 1499, bonus: 3 },
 ]
 
 // ============================================
@@ -154,6 +155,7 @@ export default async function PartnerPage() {
                 <p className="text-lg font-semibold text-gray-700">฿{(stats.totalEarned / 100).toLocaleString()}</p>
               </div>
             </div>
+            {/* ✅ เพิ่ม lockedPhone */}
             <WithdrawButton 
               balance={stats.pendingBalance} 
               bankInfo={{
@@ -161,6 +163,7 @@ export default async function PartnerPage() {
                 accountNumber: partner.accountNumber,
                 accountName: partner.accountName,
               }}
+              lockedPhone={partner.withdrawPhone}
             />
           </div>
         </div>
@@ -257,43 +260,46 @@ export default async function PartnerPage() {
         <p className="text-gray-500 mt-1">รับ Partner Reward จากการแนะนำบริการ</p>
       </div>
 
-      {/* Plans */}
+      {/* Plans - ราคาใหม่ */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {PARTNER_PLANS.map((plan) => (
+      {PARTNER_PLANS.map((plan) => {
+        const totalMonths = plan.months + plan.bonus
+        const pricePerMonth = Math.round(plan.price / totalMonths)
+        
+        return (
           <div 
             key={plan.months} 
-            className={`bg-white rounded-xl border-2 p-5 ${plan.popular ? 'border-gray-900' : 'border-gray-200'}`}
+            className="bg-white rounded-xl border-2 border-gray-200 p-5 flex flex-col"  // ← เพิ่ม flex flex-col
           >
-            {plan.popular && (
-              <span className="inline-block px-2 py-0.5 bg-gray-900 text-white text-xs font-medium rounded mb-2">
-                ยอดนิยม
-              </span>
-            )}
             <p className="text-xl font-bold text-gray-900">{plan.months} เดือน</p>
-            {plan.bonus > 0 && (
-              <p className="text-sm text-gray-500">+{plan.bonus} เดือนฟรี</p>
-            )}
+            
+            {/* ✅ เพิ่ม min-height ให้ส่วนนี้ */}
+            <div className="h-6">
+              {plan.bonus > 0 && (
+                <p className="text-sm text-emerald-600">+{plan.bonus} เดือนฟรี</p>
+              )}
+            </div>
+            
             <p className="text-2xl font-bold text-gray-900 my-3">฿{plan.price}</p>
-            <p className="text-sm text-gray-400 mb-4">฿{Math.round(plan.price / (plan.months + plan.bonus))}/เดือน</p>
+            <p className="text-sm text-gray-400 mb-4">฿{pricePerMonth}/เดือน</p>
+            
+            {/* ✅ mt-auto ดันปุ่มลงล่างสุด */}
             <Link
               href={`/partner/checkout?months=${plan.months}`}
-              className={`block w-full py-2 rounded-lg text-center text-sm font-medium transition-colors ${
-                plan.popular 
-                  ? 'bg-gray-900 text-white hover:bg-gray-800' 
-                  : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-              }`}
+              className="mt-auto block w-full py-2 rounded-lg text-center text-sm font-medium bg-gray-100 text-gray-900 hover:bg-gray-200 transition-colors"
             >
               เลือก
             </Link>
           </div>
-        ))}
+        )
+      })}
       </div>
 
       {/* Terms Preview */}
       <div className="bg-gray-50 rounded-xl border border-gray-200 p-5">
         <h2 className="font-semibold text-gray-900 mb-3">เงื่อนไขการรับ Partner Reward</h2>
         <div className="text-sm text-gray-600 space-y-2">
-          <p>• ต้องมี Signal Subscription และ Partner Plan ที่ Active</p>
+        
           <p>• ผลตอบแทนคำนวณจากการใช้งานจริงของผู้ใช้บริการที่ถูกแนะนำ</p>
           <p>• ระบบไม่มีการรับประกันหรือการการันตีรายได้ใดๆ</p>
           <p>• ยอดคงเหลือไม่มีวันหมดอายุและจะไม่ถูกยึด</p>
