@@ -5,13 +5,14 @@ import { requireAdmin } from '@/lib/auth'
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await requireAdmin()
+    const { id } = await params
 
     const withdrawal = await prisma.withdrawal.findUnique({
-      where: { id: params.id },
+      where: { id },
     })
 
     if (!withdrawal) {
@@ -23,7 +24,7 @@ export async function POST(
     }
 
     await prisma.withdrawal.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         status: 'PAID',
         paidAt: new Date(),
