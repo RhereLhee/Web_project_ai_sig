@@ -101,3 +101,14 @@ export async function updateSymbolSetting(
     return { success: false, error: 'Failed to update' }
   }
 }
+// เพิ่มใน lib/trading-api.ts
+
+export async function getLossHistory() {
+  // TODO: implement
+  return []
+}
+
+export async function sendRetrainCommand(params: any) {
+  // TODO: implement
+  return { success: true }
+}

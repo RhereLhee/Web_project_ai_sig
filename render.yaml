@@ -1,13 +1,31 @@
+# render.yaml
+# Blueprint สำหรับ Deploy บน Render
+
 services:
   - type: web
     name: techtrade
-    env: node
+    runtime: node
+    plan: free
     buildCommand: npm install && npx prisma generate && npm run build
     startCommand: npm start
     envVars:
+      - key: NODE_ENV
+        value: production
       - key: DATABASE_URL
-        sync: false
+        sync: false  # ตั้งค่าเองใน Dashboard
       - key: JWT_SECRET
+        generateValue: true
+      - key: NEXT_PUBLIC_FIREBASE_API_KEY
         sync: false
-      - key: NEXT_PUBLIC_APP_URL
+      - key: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+        sync: false
+      - key: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+        sync: false
+      - key: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+        sync: false
+      - key: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+        sync: false
+      - key: NEXT_PUBLIC_FIREBASE_APP_ID
+        sync: false
+      - key: PROMPTPAY_ID
         sync: false
