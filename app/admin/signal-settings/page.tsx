@@ -17,7 +17,7 @@ export default async function AdminSignalsPage() {
       ...stat,
       enabled: setting?.enabled ?? true,
       threshold: setting?.threshold ?? 0.82,
-      notes: setting?.notes,
+      notes: setting?.notes ?? undefined,
     }
   })
 

@@ -113,7 +113,7 @@ export function validateBankAccount(
   // เช็คความยาวตามธนาคาร
   if (bankCode) {
     const bank = THAI_BANKS.find(b => b.code === bankCode)
-    if (bank && !bank.digits.includes(cleaned.length)) {
+    if (bank && !bank.digits.some(d => d === cleaned.length)) {
       return { 
         valid: false, 
         error: `เลขบัญชี${bank.name}ต้องมี ${bank.digits.join(' หรือ ')} หลัก` 

@@ -33,7 +33,7 @@ export function CheckoutForm({ plan, user, isSignalPlan }: CheckoutFormProps) {
 
     try {
       // เลือก API endpoint ตามประเภท plan
-      const endpoint = isSignalPlan ? '/api/checkout/signal' : '/api/checkout'
+      const endpoint = '/api/checkout/signal'
       
       const res = await fetch(endpoint, {
         method: 'POST',

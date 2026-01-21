@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Commission" ADD COLUMN     "withdrawnAmount" INTEGER NOT NULL DEFAULT 0,
+ALTER COLUMN "status" SET DEFAULT 'AVAILABLE';

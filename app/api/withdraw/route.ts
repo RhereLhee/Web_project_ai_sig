@@ -30,12 +30,12 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const { amount, bankName, accountNumber, accountName, otpCode } = await req.json()
+    const { amount, bankCode, accountNumber, accountName, otpCode } = await req.json()
 
     // ============================================
     // 1. VALIDATION
     // ============================================
-    if (!amount || !bankName || !accountNumber || !accountName) {
+    if (!amount || !bankCode || !accountNumber || !accountName) {
       return NextResponse.json(
         { error: 'กรุณากรอกข้อมูลให้ครบถ้วน' },
         { status: 400 }
@@ -171,7 +171,21 @@ export async function POST(req: NextRequest) {
     }
 
     // ============================================
-    // 6. CREATE WITHDRAWAL REQUEST
+    // 6. CHECK PARTNER
+    // ============================================
+    const partner = await prisma.partner.findUnique({
+      where: { userId: user.id },
+    })
+
+    if (!partner) {
+      return NextResponse.json(
+        { error: 'ไม่พบข้อมูล Partner กรุณาสมัคร Partner ก่อน' },
+        { status: 400 }
+      )
+    }
+
+    // ============================================
+    // 7. CREATE WITHDRAWAL REQUEST
     // ============================================
     
     // Mark OTP as verified
@@ -184,10 +198,13 @@ export async function POST(req: NextRequest) {
     const withdrawal = await prisma.withdrawal.create({
       data: {
         userId: user.id,
+        partnerId: partner.id,
         amount,
-        bankName,
+        amountBaht: amount / 100,
+        bankCode,
         accountNumber,
         accountName,
+        phone: userWithPhone.phone,
         status: 'PENDING',
       },
     })

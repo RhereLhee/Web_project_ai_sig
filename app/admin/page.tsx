@@ -165,7 +165,7 @@ export default async function AdminDashboard() {
                 <div key={w.id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
                   <div>
                     <p className="font-medium text-sm">{w.user.name || w.user.email}</p>
-                    <p className="text-xs text-gray-500">{w.bankName}</p>
+                    <p className="text-xs text-gray-500">{w.accountName}</p>
                   </div>
                   <p className="font-medium text-emerald-600">฿{(w.amount / 100).toLocaleString()}</p>
                 </div>

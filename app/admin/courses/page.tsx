@@ -41,7 +41,6 @@ export default async function AdminCoursesPage() {
                 <th className="text-left p-3 font-medium">ประเภท</th>
                 <th className="text-left p-3 font-medium">สิทธิ์</th>
                 <th className="text-left p-3 font-medium">สถานะ</th>
-                <th className="text-left p-3 font-medium">Sections</th>
                 <th className="text-left p-3 font-medium">วิดีโอ</th>
                 <th className="text-left p-3 font-medium">จัดการ</th>
               </tr>
@@ -59,7 +58,7 @@ export default async function AdminCoursesPage() {
                     </td>
                     <td className="p-3">
                       <span className="px-2 py-0.5 bg-gray-100 rounded text-xs">
-                        {course.type}
+                        {course.type === 'TRADING' ? '📈 การเทรด' : '💰 การเงิน'}
                       </span>
                     </td>
                     <td className="p-3">
@@ -73,11 +72,13 @@ export default async function AdminCoursesPage() {
                           ? 'bg-emerald-100 text-emerald-700' 
                           : 'bg-yellow-100 text-yellow-700'
                       }`}>
-                        {course.isPublished ? 'เผยแพร่' : 'ซ่อน'}
+                        {course.isPublished ? '✅ เผยแพร่' : '⏸️ ซ่อน'}
                       </span>
                     </td>
-                    <td className="p-3">{course.sections.length}</td>
-                    <td className="p-3">{totalVideos}</td>
+                    <td className="p-3">
+                      <span className="font-medium">{totalVideos}</span>
+                      <span className="text-gray-400 text-xs ml-1">วิดีโอ</span>
+                    </td>
                     <td className="p-3">
                       <div className="flex gap-2">
                         <Link 
@@ -87,10 +88,10 @@ export default async function AdminCoursesPage() {
                           แก้ไข
                         </Link>
                         <Link 
-                          href={`/admin/courses/${course.id}/sections`}
+                          href={`/admin/courses/${course.id}/videos`}
                           className="text-blue-600 hover:underline text-sm"
                         >
-                          Sections
+                          📹 วิดีโอ
                         </Link>
                         <DeleteCourseButton courseId={course.id} />
                       </div>
@@ -105,6 +106,17 @@ export default async function AdminCoursesPage() {
         {courses.length === 0 && (
           <p className="text-center text-gray-500 py-8">ยังไม่มีคอร์ส</p>
         )}
+      </div>
+
+      {/* Help */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <h3 className="font-medium text-blue-800 mb-2">💡 วิธีใช้งาน</h3>
+        <ol className="text-sm text-blue-700 space-y-1 list-decimal list-inside">
+          <li>กด <strong>"+ สร้างคอร์สใหม่"</strong> เพื่อสร้างคอร์ส</li>
+          <li>เลือกประเภท (การเทรด/การเงิน) และสิทธิ์ (FREE/PRO/PARTNER)</li>
+          <li>กด <strong>"📹 วิดีโอ"</strong> เพื่อเพิ่มวิดีโอใส่คอร์ส</li>
+          <li>วาง YouTube URL → กดเพิ่ม → วิดีโอขึ้นหน้า User ทันที</li>
+        </ol>
       </div>
     </div>
   )

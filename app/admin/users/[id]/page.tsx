@@ -3,7 +3,7 @@ import { notFound } from "next/navigation"
 import Link from "next/link"
 
 interface Props {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }
 
 async function getUser(id: string) {
@@ -40,7 +40,9 @@ async function getUser(id: string) {
 }
 
 export default async function UserDetailPage({ params }: Props) {
-  const user = await getUser(params.id)
+  // Next.js 15: params is a Promise, must await
+  const { id } = await params
+  const user = await getUser(id)
 
   if (!user) {
     notFound()
@@ -64,6 +66,7 @@ export default async function UserDetailPage({ params }: Props) {
           <div>
             <h2 className="text-xl font-bold">{user.name || 'ไม่ระบุชื่อ'}</h2>
             <p className="text-gray-500">{user.email}</p>
+            {user.phone && <p className="text-sm text-gray-400">📱 {user.phone}</p>}
             <p className="text-sm text-gray-400 mt-1">ID: {user.id}</p>
           </div>
           <span className={`px-3 py-1 rounded-full text-sm font-medium ${
@@ -213,6 +216,46 @@ export default async function UserDetailPage({ params }: Props) {
             </div>
           ) : (
             <p className="text-gray-500 text-sm text-center">ไม่มีออเดอร์</p>
+          )}
+        </div>
+
+        {/* Withdrawals */}
+        <div className="bg-white rounded-lg border p-6 lg:col-span-2">
+          <h3 className="font-semibold text-gray-900 mb-4">💸 ประวัติถอนเงิน</h3>
+          {user.withdrawals.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-left p-2">วันที่</th>
+                    <th className="text-left p-2">จำนวน</th>
+                    <th className="text-left p-2">ธนาคาร</th>
+                    <th className="text-left p-2">สถานะ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {user.withdrawals.map((w) => (
+                    <tr key={w.id}>
+                      <td className="p-2">{new Date(w.createdAt).toLocaleDateString('th-TH')}</td>
+                      <td className="p-2 font-medium text-emerald-600">฿{(w.amount / 100).toLocaleString()}</td>
+                      <td className="p-2">{w.bankCode}</td>
+                      <td className="p-2">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                          w.status === 'PAID' ? 'bg-emerald-100 text-emerald-700' :
+                          w.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' :
+                          w.status === 'APPROVED' ? 'bg-blue-100 text-blue-700' :
+                          'bg-red-100 text-red-700'
+                        }`}>
+                          {w.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-gray-500 text-sm text-center py-4">ไม่มีประวัติถอนเงิน</p>
           )}
         </div>
       </div>

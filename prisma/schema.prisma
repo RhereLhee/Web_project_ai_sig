@@ -86,6 +86,13 @@ enum WithdrawalStatus {
 }
 
 // ============================================
+// COMMISSION STATUS
+// ============================================
+// PENDING = ถอนได้ (available)
+// HOLDING = กำลังรอ admin อนุมัติ (holding)
+// WITHDRAWN = ถอนแล้ว (withdrawn)
+
+// ============================================
 // USER & AUTHENTICATION
 // ============================================
 
@@ -459,18 +466,37 @@ model Commission {
   level            Int
   weight           Float
   normalizedWeight Float
-  amount           Int
-  amountBaht       Float
+  
+  // ============================================
+  // AMOUNT TRACKING (Immutable Pattern)
+  // ============================================
+  amount           Int       // totalAmount (satang) - ห้ามแก้!
+  amountBaht       Float     // totalAmount (baht) - ห้ามแก้!
+  withdrawnAmount  Int       @default(0)  // ยอดที่ถอนไปแล้ว (satang)
+  
+  // available = amount - withdrawnAmount
 
-  status  String    @default("PENDING")
+  // ============================================
+  // STATUS
+  // ============================================
+  // AVAILABLE = ยังมียอดถอนได้
+  // FULLY_WITHDRAWN = ถอนหมดแล้ว
+  status  String    @default("AVAILABLE")
   paidAt  DateTime?
   paidVia String?
+
+  // ============================================
+  // Link to Withdrawal (for tracking)
+  // ============================================
+  withdrawalId String?
+  withdrawal   Withdrawal? @relation(fields: [withdrawalId], references: [id])
 
   createdAt DateTime @default(now())
 
   @@index([userId])
   @@index([status])
   @@index([level])
+  @@index([withdrawalId])
 }
 
 // ============================================
@@ -755,6 +781,11 @@ model Withdrawal {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // ============================================
+  // NEW: Commissions linked to this withdrawal
+  // ============================================
+  commissions Commission[]
 
   @@index([userId])
   @@index([partnerId])

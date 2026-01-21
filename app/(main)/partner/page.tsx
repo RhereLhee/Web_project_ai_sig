@@ -1,6 +1,6 @@
 // app/(main)/partner/page.tsx
 import Link from "next/link"
-import { getUserWithSubscription } from "@/lib/auth"
+import { getCurrentUser } from "@/lib/jwt"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { CopyButton } from "./CopyButton"
@@ -10,23 +10,21 @@ import { WithdrawButton } from "./WithdrawButton"
 // Helper Functions
 // ============================================
 
-async function getPartner(userId: string) {
-  return await prisma.partner.findUnique({
-    where: { userId },
+async function getPartnerWithUser(userId: string) {
+  return await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      phone: true,
+      referralCode: true,
+      partner: true,
+    }
   })
 }
 
 async function getAffiliateStats(userId: string) {
-  const [teamCount, pendingCommission, paidCommission, recentCommissions] = await Promise.all([
+  const [teamCount, recentCommissions] = await Promise.all([
     prisma.user.count({ where: { referredById: userId } }),
-    prisma.commission.aggregate({
-      where: { userId, status: 'PENDING' },
-      _sum: { amount: true },
-    }),
-    prisma.commission.aggregate({
-      where: { userId, status: 'PAID' },
-      _sum: { amount: true },
-    }),
     prisma.commission.findMany({
       where: { userId },
       include: {
@@ -43,10 +41,26 @@ async function getAffiliateStats(userId: string) {
     }),
   ])
 
+  // คำนวณยอดจาก withdrawnAmount pattern
+  const allCommissions = await prisma.commission.findMany({
+    where: { userId },
+  })
+
+  // ยอดถอนได้ = SUM(amount - withdrawnAmount) where status = AVAILABLE
+  const pendingBalance = allCommissions
+    .filter(c => c.status === 'AVAILABLE')
+    .reduce((sum, c) => sum + (c.amount - c.withdrawnAmount), 0)
+
+  // ยอดที่ถอนไปแล้ว = SUM(withdrawnAmount)
+  const withdrawnBalance = allCommissions.reduce((sum, c) => sum + c.withdrawnAmount, 0)
+
+  // ยอดรวมทั้งหมด = SUM(amount)
+  const totalEarned = allCommissions.reduce((sum, c) => sum + c.amount, 0)
+
   return {
     team: teamCount,
-    pendingBalance: pendingCommission._sum.amount || 0,
-    totalEarned: (pendingCommission._sum.amount || 0) + (paidCommission._sum.amount || 0),
+    pendingBalance,      // ถอนได้
+    totalEarned,         // รวมทั้งหมด
     recentCommissions,
   }
 }
@@ -69,6 +83,14 @@ async function getTeam(userId: string) {
   })
 }
 
+async function getWithdrawalHistory(userId: string) {
+  return await prisma.withdrawal.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+  })
+}
+
 // ============================================
 // Partner Plans - ราคาใหม่ ฿199
 // ============================================
@@ -81,32 +103,82 @@ const PARTNER_PLANS = [
 ]
 
 // ============================================
+// Withdrawal Status Component
+// ============================================
+
+function WithdrawalStatusBadge({ status }: { status: string }) {
+  const config: Record<string, { bg: string; text: string; label: string }> = {
+    PENDING: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'รอตรวจสอบ' },
+    APPROVED: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'กำลังดำเนินการ' },
+    PAID: { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'โอนแล้ว' },
+    REJECTED: { bg: 'bg-red-100', text: 'text-red-700', label: 'ปฏิเสธ' },
+  }
+
+  const { bg, text, label } = config[status] || { bg: 'bg-gray-100', text: 'text-gray-700', label: status }
+
+  return (
+    <span className={`px-2 py-0.5 rounded text-xs font-medium ${bg} ${text}`}>
+      {label}
+    </span>
+  )
+}
+
+// ============================================
 // Main Page
 // ============================================
 
 export default async function PartnerPage() {
-  const user = await getUserWithSubscription()
-  if (!user) redirect("/login")
+  const payload = await getCurrentUser()
+  if (!payload) redirect("/login")
 
-  const partner = await getPartner(user.id)
+  const userData = await getPartnerWithUser(payload.userId)
+  if (!userData) redirect("/login")
+
+  const partner = userData.partner
   const isPartner = partner?.status === 'ACTIVE' && partner.endDate && new Date(partner.endDate) > new Date()
 
   // ============================================
   // Partner Dashboard (หลังซื้อ)
   // ============================================
   if (isPartner && partner) {
-    const [stats, team] = await Promise.all([
-      getAffiliateStats(user.id),
-      getTeam(user.id),
+    const [stats, team, withdrawals] = await Promise.all([
+      getAffiliateStats(userData.id),
+      getTeam(userData.id),
+      getWithdrawalHistory(userData.id),
     ])
 
     const daysRemaining = partner.endDate
       ? Math.ceil((new Date(partner.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
       : 0
 
+    // หา withdrawal ล่าสุดที่ยังไม่เสร็จ
+    const pendingWithdrawal = withdrawals.find(w => w.status === 'PENDING' || w.status === 'APPROVED')
+
     return (
       <div className="space-y-6">
         <h1 className="text-xl font-bold text-gray-900">Partner Dashboard</h1>
+
+        {/* แสดงสถานะการถอนเงินที่กำลังดำเนินการ */}
+        {pendingWithdrawal && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="font-medium text-blue-900">กำลังดำเนินการถอนเงิน</p>
+                  <p className="text-sm text-blue-700">
+                    ฿{(pendingWithdrawal.amount / 100).toLocaleString()} • {pendingWithdrawal.status === 'PENDING' ? 'รอตรวจสอบข้อมูล' : 'กำลังโอนเงิน'}
+                  </p>
+                </div>
+              </div>
+              <WithdrawalStatusBadge status={pendingWithdrawal.status} />
+            </div>
+          </div>
+        )}
 
         {/* Row 1: Status + Code + Balance */}
         <div className="grid lg:grid-cols-3 gap-4">
@@ -137,9 +209,9 @@ export default async function PartnerPage() {
             <p className="text-sm text-gray-500 mb-2">รหัสแนะนำ</p>
             <div className="flex items-center space-x-2">
               <code className="flex-1 bg-gray-100 rounded-lg px-4 py-3 text-gray-900 font-mono text-center">
-                {user.referralCode}
+                {userData.referralCode}
               </code>
-              <CopyButton code={user.referralCode} />
+              <CopyButton code={userData.referralCode} />
             </div>
           </div>
 
@@ -162,6 +234,8 @@ export default async function PartnerPage() {
                 accountNumber: partner.accountNumber,
                 accountName: partner.accountName,
               }}
+              userPhone={userData.phone}
+              lockedPhone={partner.withdrawPhone}
             />
           </div>
         </div>
@@ -226,6 +300,52 @@ export default async function PartnerPage() {
             )}
           </div>
         </div>
+
+        {/* Withdrawal History */}
+        {withdrawals.length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <h2 className="font-semibold text-gray-900 mb-4">ประวัติการถอนเงิน</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-left p-3 font-medium text-gray-600">วันที่</th>
+                    <th className="text-left p-3 font-medium text-gray-600">จำนวน</th>
+                    <th className="text-left p-3 font-medium text-gray-600">บัญชี</th>
+                    <th className="text-left p-3 font-medium text-gray-600">สถานะ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {withdrawals.map((w) => (
+                    <tr key={w.id} className="hover:bg-gray-50">
+                      <td className="p-3 text-gray-600">
+                        {new Date(w.createdAt).toLocaleDateString('th-TH')}
+                      </td>
+                      <td className="p-3 font-semibold text-gray-900">
+                        ฿{(w.amount / 100).toLocaleString()}
+                      </td>
+                      <td className="p-3">
+                        <p className="text-gray-900">{w.bankCode}</p>
+                        <p className="text-xs text-gray-500">{w.accountNumber}</p>
+                      </td>
+                      <td className="p-3">
+                        <WithdrawalStatusBadge status={w.status} />
+                        {w.status === 'REJECTED' && w.rejectedReason && (
+                          <p className="text-xs text-red-500 mt-1">{w.rejectedReason}</p>
+                        )}
+                        {w.status === 'PAID' && w.paidAt && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            โอนเมื่อ {new Date(w.paidAt).toLocaleDateString('th-TH')}
+                          </p>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Info Section */}
         <div className="bg-gray-50 rounded-xl border border-gray-200 p-5">

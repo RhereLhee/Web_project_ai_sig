@@ -145,7 +145,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json(
         { 
-          error: `Email หรือ password ไม่ถูกต้อง (เหลือ ${result.remainingAttempts} ครั้ง)`,
+          error: `Email หรือ password ไม่ถูกต้อง`,
           remainingAttempts: result.remainingAttempts,
         },
         { status: 401 }

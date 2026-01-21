@@ -115,9 +115,15 @@ export function Sidebar({ user, hasPartner, hasSignal }: SidebarProps) {
         </Link>
       </div>
 
-      {/* User Profile */}
+      {/* User Profile - คลิกไปหน้า /profile */}
       <div className="px-4 md:px-6 pb-4 md:pb-6">
-        <div className="bg-gray-800 rounded-lg p-3 md:p-4">
+        <Link 
+          href="/profile" 
+          onClick={() => setIsOpen(false)}
+          className={`block bg-gray-800 rounded-lg p-3 md:p-4 hover:bg-gray-700 transition-colors cursor-pointer ${
+            pathname === '/profile' ? 'ring-2 ring-emerald-500' : ''
+          }`}
+        >
           <div className="flex items-center space-x-3 mb-3">
             <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0 ${
               isAdmin 
@@ -134,7 +140,7 @@ export function Sidebar({ user, hasPartner, hasSignal }: SidebarProps) {
           <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold text-white ${badgeColor}`}>
             {badge}
           </span>
-        </div>
+        </Link>
       </div>
 
       {/* Navigation */}

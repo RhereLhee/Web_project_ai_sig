@@ -1,5 +1,5 @@
 // lib/email.ts
-// Email OTP Service - รองรับ SMTP/Gmail, Resend, SendGrid
+// Email Service - รองรับ SMTP/Gmail, Resend, SendGrid
 
 export type EmailProvider = 'SMTP' | 'RESEND' | 'SENDGRID' | 'MOCK'
 
@@ -95,12 +95,12 @@ async function sendViaResend(to: string, subject: string, html: string): Promise
 }
 
 async function sendViaMock(to: string, subject: string, html: string): Promise<SendEmailResult> {
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+  console.log('═════════════════════════════════════════')
   console.log('📧 MOCK EMAIL')
   console.log(`📬 To: ${to}`)
   console.log(`📝 Subject: ${subject}`)
   console.log(`📄 Body: ${html.replace(/<[^>]*>/g, '').substring(0, 200)}...`)
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+  console.log('═════════════════════════════════════════')
   
   return { success: true, messageId: `mock-${Date.now()}` }
 }
@@ -123,6 +123,10 @@ export async function sendEmail(to: string, subject: string, html: string): Prom
   }
 }
 
+// ============================================
+// EMAIL OTP
+// ============================================
+
 export async function sendEmailOTP(email: string, otp: string): Promise<SendEmailResult> {
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -144,4 +148,180 @@ export async function sendEmailOTP(email: string, otp: string): Promise<SendEmai
   `
 
   return sendEmail(email, 'รหัส OTP ยืนยันตัวตน - TechTrade', html)
+}
+
+// ============================================
+// WITHDRAWAL EMAILS
+// ============================================
+
+interface WithdrawalEmailData {
+  amount: number // บาท
+  bankCode: string
+  accountNumber: string
+  accountName: string
+  date: Date
+  paymentRef?: string
+}
+
+/**
+ * ส่ง Email แจ้งโอนเงินเรียบร้อยแล้ว
+ */
+export async function sendWithdrawalPaidEmail(
+  email: string, 
+  data: WithdrawalEmailData
+): Promise<SendEmailResult> {
+  const formattedDate = new Date(data.date).toLocaleDateString('th-TH', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+
+      <div style="padding: 30px; background: #f9fafb;">
+        
+        <p style="color: #4b5563;">เรียน ลูกค้าที่เคารพ</p>
+        
+        <p style="color: #4b5563;">
+          ทางทีมงานขอแจ้งให้ทราบว่า คำขอถอนเงินของท่านได้ดำเนินการโอนเงินเรียบร้อยแล้ว
+        </p>
+        
+        <div style="background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;">
+          <h3 style="color: #111827; margin-top: 0;">รายละเอียดการโอนเงิน</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280;">จำนวนเงิน:</td>
+              <td style="padding: 8px 0; color: #10b981; font-weight: bold; text-align: right;">฿${data.amount.toLocaleString()}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280;">ธนาคาร:</td>
+              <td style="padding: 8px 0; color: #111827; text-align: right;">${data.bankCode}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280;">เลขบัญชี:</td>
+              <td style="padding: 8px 0; color: #111827; font-family: monospace; text-align: right;">${data.accountNumber}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280;">ชื่อบัญชี:</td>
+              <td style="padding: 8px 0; color: #111827; text-align: right;">${data.accountName}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280;">วันที่โอน:</td>
+              <td style="padding: 8px 0; color: #111827; text-align: right;">${formattedDate}</td>
+            </tr>
+            ${data.paymentRef ? `
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280;">เลขอ้างอิง:</td>
+              <td style="padding: 8px 0; color: #111827; font-family: monospace; text-align: right;">${data.paymentRef}</td>
+            </tr>
+            ` : ''}
+          </table>
+        </div>
+        
+        <p style="color: #4b5563;">
+          หากท่านมีข้อสงสัยเพิ่มเติม สามารถติดต่อทีมงานได้ผ่านช่องทางที่กำหนดไว้ ทีมงานยินดีให้บริการ
+        </p>
+        
+        <p style="color: #4b5563;">
+          ขอขอบคุณที่ไว้วางใจใช้บริการของเรา
+        </p>
+        
+        <p style="color: #6b7280; margin-top: 30px;">
+          ขอแสดงความนับถือ<br>
+          <strong>ทีมงาน TechTrade</strong>
+        </p>
+      </div>
+      <div style="background: #111827; padding: 20px; text-align: center;">
+        <p style="color: #6b7280; font-size: 12px; margin: 0;">
+          อีเมลนี้ถูกส่งโดยอัตโนมัติ กรุณาอย่าตอบกลับ
+        </p>
+      </div>
+    </div>
+  `
+
+  return sendEmail(email, 'แจ้งผลการอนุมัติคำขอถอนเงิน - TechTrade', html)
+}
+
+/**
+ * ส่ง Email แจ้งปฏิเสธคำขอถอนเงิน
+ */
+export async function sendWithdrawalRejectedEmail(
+  email: string,
+  data: WithdrawalEmailData & { reason: string }
+): Promise<SendEmailResult> {
+  const formattedDate = new Date(data.date).toLocaleDateString('th-TH', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+
+      <div style="padding: 30px; background: #f9fafb;">
+        <h2 style="color: #111827;">แจ้งผลคำขอถอนเงิน</h2>
+        
+        <p style="color: #4b5563;">เรียน ลูกค้าที่เคารพ</p>
+        
+        <p style="color: #4b5563;">
+          ทางทีมงานขอแจ้งให้ทราบว่า คำขอถอนเงินของท่านยังไม่สามารถดำเนินการได้ในขณะนี้ หลังจากการตรวจสอบตามเงื่อนไขของระบบ
+        </p>
+         <p style="color: #4b5563;">
+          เหตุผลในการปฏิเสธคำขอถอนเงิน: ${data.reason}
+        </p>
+
+        
+        <div style="background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;">
+          <h3 style="color: #111827; margin-top: 0;">รายละเอียดคำขอ</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280;">จำนวนเงิน:</td>
+              <td style="padding: 8px 0; color: #111827; text-align: right;">฿${data.amount.toLocaleString()}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280;">ธนาคาร:</td>
+              <td style="padding: 8px 0; color: #111827; text-align: right;">${data.bankCode}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280;">เลขบัญชี:</td>
+              <td style="padding: 8px 0; color: #111827; font-family: monospace; text-align: right;">${data.accountNumber}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280;">วันที่ขอถอน:</td>
+              <td style="padding: 8px 0; color: #111827; text-align: right;">${formattedDate}</td>
+            </tr>
+          </table>
+        </div>
+        
+        <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 15px; margin: 20px 0;">
+          <p style="color: #92400e; margin: 0; font-size: 14px;">
+            <strong>หมายเหตุ:</strong> ยอดเงินของท่านได้ถูกคืนกลับไปยังบัญชีเรียบร้อยแล้ว ท่านสามารถตรวจสอบและแก้ไขข้อมูลให้ถูกต้องครบถ้วน จากนั้นทำรายการขอถอนเงินใหม่ได้อีกครั้ง
+          </p>
+        </div>
+        
+        <p style="color: #4b5563;">
+          หากมีข้อสงสัยเพิ่มเติม หรือประสงค์สอบถามรายละเอียดเกี่ยวกับเงื่อนไขการถอนเงิน กรุณาติดต่อทีมงานผ่านช่องทางที่กำหนด ทีมงานยินดีให้ความช่วยเหลืออย่างเต็มที่
+        </p>
+        
+        <p style="color: #4b5563;">
+          ขอขอบคุณที่ให้ความร่วมมือและไว้วางใจใช้บริการของเรา
+        </p>
+        
+        <p style="color: #6b7280; margin-top: 30px;">
+          ขอแสดงความนับถือ<br>
+          <strong>ทีมงาน TechTrade</strong>
+        </p>
+      </div>
+      <div style="background: #111827; padding: 20px; text-align: center;">
+        <p style="color: #6b7280; font-size: 12px; margin: 0;">
+          อีเมลนี้ถูกส่งโดยอัตโนมัติ กรุณาอย่าตอบกลับ
+        </p>
+      </div>
+    </div>
+  `
+
+  return sendEmail(email, 'แจ้งผลคำขอถอนเงิน - TechTrade', html)
 }

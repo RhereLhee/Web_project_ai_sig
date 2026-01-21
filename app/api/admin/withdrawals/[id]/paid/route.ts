@@ -1,7 +1,9 @@
 // app/api/admin/withdrawals/[id]/paid/route.ts
+// เมื่อโอนแล้ว withdrawnAmount คงไว้ (ถอนจริงแล้ว)
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth'
+import { sendWithdrawalPaidEmail } from '@/lib/email'
 
 export async function POST(
   request: NextRequest,
@@ -10,9 +12,21 @@ export async function POST(
   try {
     await requireAdmin()
     const { id } = await params
+    
+    let paymentRef: string | undefined
+    try {
+      const body = await request.json()
+      paymentRef = body.paymentRef
+    } catch {
+      // ไม่มี body ก็ไม่เป็นไร
+    }
 
     const withdrawal = await prisma.withdrawal.findUnique({
       where: { id },
+      include: {
+        user: { select: { email: true, name: true } },
+        commissions: true,
+      },
     })
 
     if (!withdrawal) {
@@ -23,25 +37,52 @@ export async function POST(
       return NextResponse.json({ error: 'รายการนี้ยังไม่ได้รับการอนุมัติ' }, { status: 400 })
     }
 
-    await prisma.withdrawal.update({
-      where: { id },
-      data: {
-        status: 'PAID',
-        paidAt: new Date(),
-      },
+    const paidAt = new Date()
+
+    // ============================================
+    // Transaction: Update withdrawal + commission
+    // ============================================
+    await prisma.$transaction(async (tx) => {
+      // 1. Update withdrawal
+      await tx.withdrawal.update({
+        where: { id },
+        data: {
+          status: 'PAID',
+          paidAt,
+          paymentRef: paymentRef || null,
+        },
+      })
+
+      // 2. Update Commission: mark as paid
+      for (const comm of withdrawal.commissions) {
+        await tx.commission.update({
+          where: { id: comm.id },
+          data: {
+            paidAt,
+            paidVia: 'WITHDRAWAL',
+          },
+        })
+      }
     })
 
-    // Update related commissions to PAID
-    await prisma.commission.updateMany({
-      where: {
-        userId: withdrawal.userId,
-        status: 'PENDING',
-      },
-      data: {
-        status: 'PAID',
-        paidAt: new Date(),
-      },
-    })
+    // ============================================
+    // ส่ง Email แจ้ง User
+    // ============================================
+    if (withdrawal.user?.email) {
+      try {
+        await sendWithdrawalPaidEmail(withdrawal.user.email, {
+          amount: withdrawal.amount / 100,
+          bankCode: withdrawal.bankCode,
+          accountNumber: withdrawal.accountNumber,
+          accountName: withdrawal.accountName,
+          date: paidAt,
+          paymentRef,
+        })
+        console.log(`📧 Sent paid email to ${withdrawal.user.email}`)
+      } catch (emailError) {
+        console.error('Failed to send paid email:', emailError)
+      }
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {

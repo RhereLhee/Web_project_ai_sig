@@ -3,6 +3,7 @@ import { getUserWithSubscription, hasActivePartner, hasSignalAccess } from "@/li
 import { redirect } from "next/navigation"
 import { Sidebar } from "@/components/Sidebar"
 import { Footer } from "@/components/Footer"
+import { PipProviderWrapper } from "./PipProviderWrapper"
 
 export default async function MainLayout({ children }: { children: React.ReactNode }) {
   const user = await getUserWithSubscription()
@@ -27,10 +28,12 @@ export default async function MainLayout({ children }: { children: React.ReactNo
         {/* Spacer for mobile header */}
         <div className="h-14 md:h-0 flex-shrink-0" />
         
-        {/* Content */}
-        <div className="flex-1 p-4 md:p-6 max-w-6xl mx-auto w-full">
-          {children}
-        </div>
+        {/* Content with PipProvider */}
+        <PipProviderWrapper hasSignal={hasSignal}>
+          <div className="flex-1 p-4 md:p-6 max-w-6xl mx-auto w-full">
+            {children}
+          </div>
+        </PipProviderWrapper>
         
         <Footer />
       </main>

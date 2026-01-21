@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma"
 import Link from "next/link"
 
 interface Props {
-  searchParams: { role?: string; search?: string; page?: string }
+  searchParams: Promise<{ role?: string; search?: string; page?: string }>
 }
 
 async function getUsers(role?: string, search?: string, page: number = 1) {
@@ -45,8 +45,10 @@ async function getUsers(role?: string, search?: string, page: number = 1) {
 }
 
 export default async function AdminUsersPage({ searchParams }: Props) {
-  const page = parseInt(searchParams.page || '1')
-  const { users, total, pages } = await getUsers(searchParams.role, searchParams.search, page)
+  // Next.js 15: searchParams is a Promise, must await
+  const params = await searchParams
+  const page = parseInt(params.page || '1')
+  const { users, total, pages } = await getUsers(params.role, params.search, page)
 
   return (
     <div className="space-y-6">
@@ -61,10 +63,10 @@ export default async function AdminUsersPage({ searchParams }: Props) {
             type="text"
             name="search"
             placeholder="ค้นหา email หรือชื่อ..."
-            defaultValue={searchParams.search}
+            defaultValue={params.search}
             className="px-3 py-2 border rounded-lg text-sm w-64"
           />
-          <select name="role" defaultValue={searchParams.role} className="px-3 py-2 border rounded-lg text-sm">
+          <select name="role" defaultValue={params.role} className="px-3 py-2 border rounded-lg text-sm">
             <option value="ALL">ทุก Role</option>
             <option value="USER">USER</option>
             <option value="PARTNER">PARTNER</option>
@@ -144,13 +146,17 @@ export default async function AdminUsersPage({ searchParams }: Props) {
           </table>
         </div>
 
+        {users.length === 0 && (
+          <p className="text-center text-gray-500 py-8">ไม่พบสมาชิก</p>
+        )}
+
         {/* Pagination */}
         {pages > 1 && (
           <div className="flex justify-center gap-2 p-4 border-t">
             {Array.from({ length: Math.min(pages, 10) }, (_, i) => i + 1).map((p) => (
               <Link
                 key={p}
-                href={`/admin/users?page=${p}&role=${searchParams.role || ''}&search=${searchParams.search || ''}`}
+                href={`/admin/users?page=${p}&role=${params.role || ''}&search=${params.search || ''}`}
                 className={`px-3 py-1 rounded ${p === page ? 'bg-gray-900 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
               >
                 {p}

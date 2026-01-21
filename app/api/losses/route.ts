@@ -4,7 +4,7 @@ import { getLossHistory } from '@/lib/trading-api'
 
 export async function GET() {
   try {
-    const losses = await getLossHistory(50)
+    const losses = await getLossHistory()
     
     return NextResponse.json({
       success: true,
