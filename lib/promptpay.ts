@@ -8,8 +8,12 @@ import QRCode from 'qrcode'
 // ============================================
 
 export const PROMPTPAY_CONFIG = {
-  id: process.env.PROMPTPAY_ID || '0652479602',
+  id: process.env.PROMPTPAY_ID || '',
   name: process.env.PROMPTPAY_NAME || 'TechTrade',
+}
+
+if (!process.env.PROMPTPAY_ID) {
+  console.error('WARNING: PROMPTPAY_ID environment variable is not set — payment QR codes will not work')
 }
 
 // ============================================

@@ -3,12 +3,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/jwt"
 import { prisma } from "@/lib/prisma"
 import { getUserAffiliateBalance } from "@/lib/affiliate"
-import { 
-  validateThaiPhone, 
-  validateBankAccount, 
+import {
+  validateThaiPhone,
+  validateBankAccount,
   validateAccountName,
-  validateWithdrawAmount 
+  validateWithdrawAmount
 } from "@/lib/validators"
+import { validateCSRF } from "@/lib/csrf"
 
 // ============================================
 // CONFIG
@@ -24,6 +25,10 @@ const WITHDRAWAL_CONFIG = {
 
 export async function POST(req: NextRequest) {
   try {
+    if (!validateCSRF(req)) {
+      return NextResponse.json({ error: "Invalid request origin" }, { status: 403 })
+    }
+
     const payload = await getCurrentUser()
     if (!payload) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -126,7 +131,9 @@ export async function POST(req: NextRequest) {
     // 6. CREATE WITHDRAWAL REQUEST
     // ============================================
     
-    const withdrawalNumber = `WD-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`
+    // Generate withdrawal number (crypto secure)
+    const { randomBytes } = require('crypto')
+    const withdrawalNumber = `WD-${Date.now()}-${randomBytes(4).toString('hex').toUpperCase()}`
 
     const withdrawal = await prisma.withdrawal.create({
       data: {
@@ -159,7 +166,8 @@ export async function POST(req: NextRequest) {
     })
 
   } catch (error) {
-    console.error("Withdrawal request error:", error)
+    const { logger } = require('@/lib/logger')
+    logger.error('Withdrawal request failed', { context: 'withdrawal', error })
     return NextResponse.json({ error: "เกิดข้อผิดพลาด" }, { status: 500 })
   }
 }

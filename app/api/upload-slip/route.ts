@@ -69,9 +69,15 @@ export async function POST(request: NextRequest) {
       await mkdir(uploadDir, { recursive: true })
     }
 
-    // Generate filename
-    const ext = slip.name.split(".").pop() || "jpg"
-    const filename = `${orderNumber}-${Date.now()}.${ext}`
+    // Generate filename — ใช้ extension จาก MIME type เท่านั้น (ป้องกัน path traversal)
+    const mimeToExt: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'image/heic': 'heic',
+    }
+    const ext = mimeToExt[slip.type] || 'jpg'
+    const filename = `${orderNumber.replace(/[^a-zA-Z0-9\-]/g, '')}-${Date.now()}.${ext}`
     const filepath = join(uploadDir, filename)
 
     // Save file
@@ -96,7 +102,8 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error("Upload slip error:", error)
+    const { logger } = require('@/lib/logger')
+    logger.error('Upload slip failed', { context: 'payment', error })
     return NextResponse.json(
       { error: "เกิดข้อผิดพลาดในการอัพโหลด" },
       { status: 500 }

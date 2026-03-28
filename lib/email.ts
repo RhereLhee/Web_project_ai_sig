@@ -1,5 +1,6 @@
 // lib/email.ts
 // Email Service - รองรับ SMTP/Gmail, Resend, SendGrid
+import { withRetry } from '@/lib/retry'
 
 export type EmailProvider = 'SMTP' | 'RESEND' | 'SENDGRID' | 'MOCK'
 
@@ -14,7 +15,8 @@ interface SendEmailResult {
 // ============================================
 
 export function generateEmailOTP(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString()
+  const { randomInt } = require('crypto')
+  return randomInt(100000, 999999).toString()
 }
 
 // ============================================
@@ -112,15 +114,33 @@ async function sendViaMock(to: string, subject: string, html: string): Promise<S
 export async function sendEmail(to: string, subject: string, html: string): Promise<SendEmailResult> {
   const provider = (process.env.EMAIL_PROVIDER || 'MOCK').toUpperCase() as EmailProvider
 
-  switch (provider) {
-    case 'SMTP':
-      return sendViaSMTP(to, subject, html)
-    case 'RESEND':
-      return sendViaResend(to, subject, html)
-    case 'MOCK':
-    default:
-      return sendViaMock(to, subject, html)
+  // Mock ไม่ต้อง retry
+  if (provider === 'MOCK') {
+    return sendViaMock(to, subject, html)
   }
+
+  // External API — ใช้ retry เพื่อป้องกัน API สะดุด
+  return withRetry(async () => {
+    let result: SendEmailResult
+
+    switch (provider) {
+      case 'SMTP':
+        result = await sendViaSMTP(to, subject, html)
+        break
+      case 'RESEND':
+        result = await sendViaResend(to, subject, html)
+        break
+      default:
+        result = await sendViaMock(to, subject, html)
+    }
+
+    if (!result.success) {
+      throw new Error(result.error || 'Email send failed')
+    }
+    return result
+  }, { context: 'email', maxRetries: 2, delayMs: 1000 }).catch(() => {
+    return { success: false, error: `Email ส่งไม่สำเร็จหลังจาก retry (${provider})` } as SendEmailResult
+  })
 }
 
 // ============================================

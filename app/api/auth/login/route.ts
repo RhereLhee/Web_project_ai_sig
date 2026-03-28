@@ -21,6 +21,7 @@ import {
   verify2FALogin,
 } from '@/lib/security'
 import bcrypt from 'bcryptjs'
+import { logger } from '@/lib/logger'
 
 export async function POST(req: NextRequest) {
   try {
@@ -269,7 +270,7 @@ export async function POST(req: NextRequest) {
     return response
 
   } catch (error) {
-    console.error('Login error:', error)
+    logger.error('Login failed', { context: 'auth', error })
     return NextResponse.json(
       { error: 'เกิดข้อผิดพลาด' },
       { status: 500 }

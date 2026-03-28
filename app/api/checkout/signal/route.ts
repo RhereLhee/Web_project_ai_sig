@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/jwt"
 import { prisma } from "@/lib/prisma"
 import { generatePayload, generateQRCode, PROMPTPAY_CONFIG } from "@/lib/promptpay"
+import { validateCSRF } from "@/lib/csrf"
 
 // ============================================
 // SIGNAL PLAN CONFIG - ราคาใหม่
@@ -39,6 +40,10 @@ function validateSignalPlan(months: number, price: number, hasReferral: boolean 
 
 export async function POST(request: NextRequest) {
   try {
+    if (!validateCSRF(request)) {
+      return NextResponse.json({ error: "Invalid request origin" }, { status: 403 })
+    }
+
     const payload = await getCurrentUser()
     if (!payload) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -78,8 +83,9 @@ export async function POST(request: NextRequest) {
       finalPrice -= SIGNAL_CONFIG.referralDiscount
     }
 
-    // Generate order number
-    const orderNumber = `SIG-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`
+    // Generate order number (crypto secure)
+    const { randomBytes } = require('crypto')
+    const orderNumber = `SIG-${Date.now()}-${randomBytes(4).toString('hex').toUpperCase()}`
 
     // Convert to satang
     const finalAmount = finalPrice * 100
@@ -134,7 +140,8 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error("Signal checkout error:", error)
+    const { logger } = require('@/lib/logger')
+    logger.error('Signal checkout failed', { context: 'payment', error })
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

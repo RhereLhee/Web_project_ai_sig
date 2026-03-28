@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { createTokens } from '@/lib/jwt'
 import { formatPhoneNumber } from '@/lib/sms'
 import bcrypt from 'bcryptjs'
+import { logger } from '@/lib/logger'
 
 export async function POST(req: NextRequest) {
   try {
@@ -65,14 +66,8 @@ export async function POST(req: NextRequest) {
     })
 
     if (existingUser) {
-      if (existingUser.email === normalizedEmail) {
-        return NextResponse.json(
-          { error: 'อีเมลนี้ถูกใช้งานแล้ว' },
-          { status: 400 }
-        )
-      }
       return NextResponse.json(
-        { error: 'เบอร์โทรศัพท์นี้ถูกใช้งานแล้ว' },
+        { error: 'ข้อมูลนี้ถูกใช้งานแล้ว กรุณาใช้ข้อมูลอื่น' },
         { status: 400 }
       )
     }
@@ -153,7 +148,7 @@ export async function POST(req: NextRequest) {
     return response
 
   } catch (error) {
-    console.error('Register error:', error)
+    logger.error('Registration failed', { context: 'auth', error })
     return NextResponse.json(
       { error: 'เกิดข้อผิดพลาด' },
       { status: 500 }

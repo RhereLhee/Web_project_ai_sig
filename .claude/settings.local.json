@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r \"document\\\\.cookie\\\\|localStorage\\\\|sessionStorage\\\\|eval\\\\|new Function\\\\|exec\\\\|spawn\" /c/projectP4/techtrade --include=*.ts --include=*.tsx --include=*.js --include=*.jsx --exclude-dir=node_modules --exclude-dir=.next)",
+      "Bash(grep -rE \"password|SECRET|APIKEY|API_KEY\" /c/projectP4/techtrade --include=*.ts --include=*.tsx --include=*.js --include=*.jsx --exclude-dir=node_modules --exclude-dir=.next)",
+      "Bash(grep -rE \"jwt\\\\.verify|bcrypt\\\\.compare|sql|SQL|query|Query\" /c/projectP4/techtrade --include=*.ts --include=*.tsx --include=*.js --include=*.jsx --exclude-dir=node_modules --exclude-dir=.next)",
+      "Bash(grep -r \"$queryRaw\\\\|$executeRaw\" /c/projectP4/techtrade --include=\"*.ts\" --include=\"*.tsx\" --exclude-dir=node_modules --exclude-dir=.next)",
+      "Bash(grep -r \"pathname\\\\|searchParams\\\\|req.url\\\\|req.headers\" /c/projectP4/techtrade/app/api --include=*.ts --exclude-dir=node_modules --exclude-dir=.next)",
+      "Bash(find /c/projectP4/techtrade -maxdepth 1 -name *.config.* -o -name middleware.ts)",
+      "Bash(grep -v \"//\")",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}

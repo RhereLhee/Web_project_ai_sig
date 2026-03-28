@@ -2,8 +2,15 @@
 import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
 
-const ACCESS_SECRET = new TextEncoder().encode(process.env.JWT_ACCESS_SECRET || 'access-secret-key-min-32-chars!!')
-const REFRESH_SECRET = new TextEncoder().encode(process.env.JWT_REFRESH_SECRET || 'refresh-secret-key-min-32-chars!!')
+if (!process.env.JWT_ACCESS_SECRET) {
+  throw new Error('JWT_ACCESS_SECRET environment variable is required')
+}
+if (!process.env.JWT_REFRESH_SECRET) {
+  throw new Error('JWT_REFRESH_SECRET environment variable is required')
+}
+
+const ACCESS_SECRET = new TextEncoder().encode(process.env.JWT_ACCESS_SECRET)
+const REFRESH_SECRET = new TextEncoder().encode(process.env.JWT_REFRESH_SECRET)
 
 // Token expiry - ปรับให้เหมาะสมกับการใช้งานจริง
 const ACCESS_EXPIRY = '15m'     // 15 นาที (มาตรฐาน)

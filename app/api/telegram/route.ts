@@ -37,7 +37,7 @@ export async function GET() {
     console.log('\n========================================')
     console.log('=== TELEGRAM API DEBUG ===')
     console.log('========================================')
-    console.log('Bot Token:', botToken ? `✓ Present (${botToken.substring(0, 20)}...)` : '✗ Missing')
+    console.log('Bot Token:', botToken ? '✓ Present' : '✗ Missing')
     console.log('Channel:', `@${channelUsername}`)
     console.log('Time:', new Date().toISOString())
 

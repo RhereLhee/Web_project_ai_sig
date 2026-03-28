@@ -1,5 +1,6 @@
 // lib/sms.ts
 // SMS OTP Service - รองรับ ThaiBulkSMS, SMSMKT, Twilio
+import { withRetry } from '@/lib/retry'
 
 export type SMSProvider = 'THAIBULKSMS' | 'SMSMKT' | 'TWILIO' | 'MOCK'
 
@@ -14,7 +15,8 @@ interface SendSMSResult {
 // ============================================
 
 export function generateOTP(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString()
+  const { randomInt } = require('crypto')
+  return randomInt(100000, 999999).toString()
 }
 
 // ============================================
@@ -174,17 +176,36 @@ export async function sendSMS(phone: string, message: string): Promise<SendSMSRe
   const provider = (process.env.SMS_PROVIDER || 'MOCK').toUpperCase() as SMSProvider
   const formattedPhone = formatPhoneNumber(phone)
 
-  switch (provider) {
-    case 'THAIBULKSMS':
-      return sendViaThaiBulkSMS(formattedPhone, message)
-    case 'SMSMKT':
-      return sendViaSMSMKT(formattedPhone, message)
-    case 'TWILIO':
-      return sendViaTwilio(formattedPhone, message)
-    case 'MOCK':
-    default:
-      return sendViaMock(formattedPhone, message)
+  // Mock ไม่ต้อง retry
+  if (provider === 'MOCK') {
+    return sendViaMock(formattedPhone, message)
   }
+
+  // External API — ใช้ retry เพื่อป้องกัน API สะดุด
+  return withRetry(async () => {
+    let result: SendSMSResult
+
+    switch (provider) {
+      case 'THAIBULKSMS':
+        result = await sendViaThaiBulkSMS(formattedPhone, message)
+        break
+      case 'SMSMKT':
+        result = await sendViaSMSMKT(formattedPhone, message)
+        break
+      case 'TWILIO':
+        result = await sendViaTwilio(formattedPhone, message)
+        break
+      default:
+        result = await sendViaMock(formattedPhone, message)
+    }
+
+    if (!result.success) {
+      throw new Error(result.error || 'SMS send failed')
+    }
+    return result
+  }, { context: 'sms', maxRetries: 2, delayMs: 1000 }).catch(() => {
+    return { success: false, error: `SMS ส่งไม่สำเร็จหลังจาก retry (${provider})` } as SendSMSResult
+  })
 }
 
 export async function sendOTP(phone: string, otp: string): Promise<SendSMSResult> {

@@ -36,6 +36,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       title: "ระบบ",
       items: [
         { href: "/admin/settings", label: "ตั้งค่า", icon: "⚙️" },
+        { href: "/admin/logs", label: "System Logs", icon: "📋" },
       ]
     },
   ]

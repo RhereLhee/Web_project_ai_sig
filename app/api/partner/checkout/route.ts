@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/jwt"
 import { prisma } from "@/lib/prisma"
 import { generatePromptPayQR } from "@/lib/promptpay"
+import { validateCSRF } from "@/lib/csrf"
 
 // ============================================
 // Partner Plans - ราคา 199 บาท (satang)
@@ -14,11 +15,18 @@ const PARTNER_PLANS: Record<number, { price: number; bonus: number }> = {
   12: { price: 149900, bonus: 3 },    // 1,499 บาท
 }
 
-// PromptPay ID (เปลี่ยนเป็นของจริงใน .env)
-const PROMPTPAY_ID = process.env.PROMPTPAY_ID || '0812345678'
+// PromptPay ID — ต้องตั้งค่าใน .env เท่านั้น
+const PROMPTPAY_ID = process.env.PROMPTPAY_ID
+if (!PROMPTPAY_ID) {
+  console.error('PROMPTPAY_ID environment variable is required')
+}
 
 export async function POST(req: NextRequest) {
   try {
+    if (!validateCSRF(req)) {
+      return NextResponse.json({ error: "Invalid request origin" }, { status: 403 })
+    }
+
     const payload = await getCurrentUser()
     if (!payload) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -26,6 +34,10 @@ export async function POST(req: NextRequest) {
 
     const userId = payload.userId
     const { months, bankName, accountNumber, accountName } = await req.json()
+
+    if (!PROMPTPAY_ID) {
+      return NextResponse.json({ error: "ระบบชำระเงินยังไม่พร้อม กรุณาติดต่อแอดมิน" }, { status: 503 })
+    }
 
     // Validate required fields
     if (!months || !bankName || !accountNumber || !accountName) {
@@ -124,7 +136,8 @@ export async function POST(req: NextRequest) {
     })
 
   } catch (error) {
-    console.error("Partner checkout error:", error)
+    const { logger } = require('@/lib/logger')
+    logger.error('Partner checkout failed', { context: 'payment', error })
     return NextResponse.json({ error: "เกิดข้อผิดพลาด" }, { status: 500 })
   }
 }

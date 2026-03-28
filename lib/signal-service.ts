@@ -142,6 +142,10 @@ class SignalService {
   }
 
   private handleMessage(data: any): void {
+        console.log('[WS] mode:', data.mode, 'type:', data.type, 
+                'stale:', data.stale, 
+                'AUDUSD price:', data.symbols?.AUDUSDm?.current_price,
+                'candles:', data.symbols?.AUDUSDm?.candles?.length)
     switch (data.type) {
       case 'initial':
       case 'realtime_update':
@@ -360,3 +364,6 @@ export const signalService = SignalService.getInstance()
 
 // Export types
 export type { SignalData, SymbolConfig, RealtimeData }
+
+
+
