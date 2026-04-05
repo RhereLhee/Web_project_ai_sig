@@ -20,8 +20,15 @@ function getRefreshSecret() {
 let _accessSecret: Uint8Array | null = null
 let _refreshSecret: Uint8Array | null = null
 
-const ACCESS_SECRET = (() => { if (!_accessSecret) _accessSecret = getAccessSecret(); return _accessSecret })()
-const REFRESH_SECRET = (() => { if (!_refreshSecret) _refreshSecret = getRefreshSecret(); return _refreshSecret })()
+function getAccessSecretCached() {
+  if (!_accessSecret) _accessSecret = getAccessSecret()
+  return _accessSecret
+}
+
+function getRefreshSecretCached() {
+  if (!_refreshSecret) _refreshSecret = getRefreshSecret()
+  return _refreshSecret
+}
 
 // Token expiry - ปรับให้เหมาะสมกับการใช้งานจริง
 const ACCESS_EXPIRY = '15m'     // 15 นาที (มาตรฐาน)
@@ -43,7 +50,7 @@ export async function createAccessToken(payload: TokenPayload): Promise<string> 
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(ACCESS_EXPIRY)
-    .sign(ACCESS_SECRET)
+    .sign(getAccessSecretCached())
 }
 
 export async function createRefreshToken(payload: TokenPayload): Promise<string> {
@@ -51,7 +58,7 @@ export async function createRefreshToken(payload: TokenPayload): Promise<string>
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(REFRESH_EXPIRY)
-    .sign(REFRESH_SECRET)
+    .sign(getRefreshSecretCached())
 }
 
 export async function createTokens(payload: TokenPayload) {
@@ -68,7 +75,7 @@ export async function createTokens(payload: TokenPayload) {
 
 export async function verifyAccessToken(token: string): Promise<TokenPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, ACCESS_SECRET)
+    const { payload } = await jwtVerify(token, getAccessSecretCached())
     return payload as unknown as TokenPayload
   } catch {
     return null
@@ -77,7 +84,7 @@ export async function verifyAccessToken(token: string): Promise<TokenPayload | n
 
 export async function verifyRefreshToken(token: string): Promise<TokenPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, REFRESH_SECRET)
+    const { payload } = await jwtVerify(token, getRefreshSecretCached())
     return payload as unknown as TokenPayload
   } catch {
     return null
