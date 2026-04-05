@@ -5,6 +5,7 @@ import { createTokens } from '@/lib/jwt'
 import { formatPhoneNumber } from '@/lib/sms'
 import bcrypt from 'bcryptjs'
 import { logger } from '@/lib/logger'
+import { isFreeTrial, getFreeTrialDays } from '@/lib/system-settings'
 
 export async function POST(req: NextRequest) {
   try {
@@ -101,6 +102,40 @@ export async function POST(req: NextRequest) {
 
     // 7. Delete OTP record
     await prisma.otpVerification.delete({ where: { id: otpRecord.id } })
+
+    // 7.5 Free Trial — ให้ Signal ฟรีถ้าเปิดอยู่
+    const freeTrialOn = await isFreeTrial()
+    let freeTrialEndDate: Date | null = null
+    if (freeTrialOn) {
+      const trialDays = await getFreeTrialDays()
+      const startDate = new Date()
+      const endDate = new Date()
+      endDate.setDate(endDate.getDate() + trialDays)
+      freeTrialEndDate = endDate
+
+      await prisma.signalSubscription.create({
+        data: {
+          userId: user.id,
+          status: 'ACTIVE',
+          startDate,
+          endDate,
+          price: 0, // ฟรี
+        },
+      })
+
+      logger.info(`Free Trial Signal ${trialDays} วัน: ${normalizedEmail}`, {
+        context: 'register',
+        userId: user.id,
+        metadata: { trialDays, endDate: endDate.toISOString() },
+      })
+    }
+
+    // Activity log — ดูได้ใน Admin > Logs
+    logger.info(`สมัครสมาชิกใหม่: ${normalizedEmail} (${name})`, {
+      context: 'register',
+      userId: user.id,
+      metadata: { email: normalizedEmail, name, phone: formattedPhone, hasReferral: !!referredById, freeTrial: freeTrialOn },
+    })
 
     // 8. Create tokens and login
     const payload = {

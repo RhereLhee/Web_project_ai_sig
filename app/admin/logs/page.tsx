@@ -163,7 +163,8 @@ export default function AdminLogsPage() {
           className="px-3 py-2 border rounded-lg bg-white"
         >
           <option value="">ทุก Context</option>
-          <option value="auth">Auth</option>
+          <option value="auth">Auth (Login)</option>
+          <option value="register">Register (สมัครสมาชิก)</option>
           <option value="payment">Payment</option>
           <option value="withdrawal">Withdrawal</option>
           <option value="signal">Signal</option>
@@ -218,8 +219,8 @@ export default function AdminLogsPage() {
         <h2 className="text-lg font-semibold mb-3">วิธีตั้งค่าการแจ้งเตือนเว็บล่ม</h2>
         <div className="space-y-4 text-sm text-gray-700">
           <div>
-            <h3 className="font-semibold text-gray-900">1. Telegram (ตั้งค่าแล้ว)</h3>
-            <p>Error/Fatal ทุกตัวจะส่งแจ้งเตือนไปที่ Telegram Chat ID ที่ตั้งค่าไว้ใน .env โดยอัตโนมัติ</p>
+            <h3 className="font-semibold text-gray-900">1. Email Alert (ตั้งค่าแล้ว)</h3>
+            <p>Error/Fatal ทุกตัวจะส่งแจ้งเตือนไปที่ Email ที่ตั้งค่าไว้ใน ALERT_EMAIL (.env) โดยอัตโนมัติ (throttled 5 นาที/context)</p>
           </div>
           <div>
             <h3 className="font-semibold text-gray-900">2. UptimeRobot (แนะนำ - ฟรี)</h3>

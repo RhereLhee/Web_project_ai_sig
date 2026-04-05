@@ -404,7 +404,7 @@ export function SignalRoomContent({ user }: SignalRoomContentProps) {
       {/* PiP Tip */}
       {isPipSupported && (
         <p className="text-center text-xs text-gray-400">
-          💡 กดปุ่ม <span className="text-emerald-500 font-medium">PiP</span> เพื่อให้กราฟลอยทับแอปเทรด
+          💡 กดปุ่ม <span className="text-emerald-500 font-medium">PiP</span> เพื่อให้กราฟลอยทับแอปเทรด (รองรับทุกอุปกรณ์)
           {isPipActive && <span className="text-emerald-400 ml-1">(กำลังใช้งาน - ทำงานต่อแม้เปลี่ยนหน้า)</span>}
         </p>
       )}

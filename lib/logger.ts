@@ -1,14 +1,15 @@
 // lib/logger.ts
-// Structured Logger — Error Handling + Notification + In-Memory Log Store
+// Structured Logger — Error Handling + Email Notification + In-Memory Log Store
 // แนวคิดจาก n8n: ระบบต้อง "เอาอยู่" แม้วันที่มันพัง
 // ดู log ผ่าน: GET /api/admin/logs
+// แจ้งเตือน error/fatal ผ่าน Email (ไม่ใช่ Telegram)
 
 type LogLevel = 'info' | 'warn' | 'error' | 'fatal'
 
 export interface LogEntry {
   level: LogLevel
   message: string
-  context?: string      // เช่น 'auth', 'payment', 'withdrawal', 'signal'
+  context?: string      // เช่น 'auth', 'payment', 'withdrawal', 'signal', 'register'
   userId?: string
   error?: unknown
   errorMessage?: string  // serialized error message สำหรับ API response
@@ -27,7 +28,6 @@ class LogStore {
 
   add(entry: LogEntry): void {
     this.entries.push(entry)
-    // ลบ log เก่าถ้าเกินขีดจำกัด
     if (this.entries.length > MAX_LOG_ENTRIES) {
       this.entries = this.entries.slice(-MAX_LOG_ENTRIES)
     }
@@ -43,7 +43,6 @@ class LogStore {
       result = result.filter(e => e.context === options.context)
     }
 
-    // เรียงล่าสุดก่อน
     result.reverse()
 
     if (options?.limit) {
@@ -83,6 +82,21 @@ class LogStore {
 export const logStore = new LogStore()
 
 // ============================================
+// THROTTLE — ป้องกันส่ง email ถี่เกินไป
+// ส่งได้สูงสุด 1 ฉบับ ต่อ 5 นาที (ต่อ context)
+// ============================================
+const emailCooldowns = new Map<string, number>()
+const EMAIL_COOLDOWN_MS = 5 * 60 * 1000 // 5 นาที
+
+function shouldSendEmail(context: string): boolean {
+  const key = context || 'system'
+  const lastSent = emailCooldowns.get(key) || 0
+  if (Date.now() - lastSent < EMAIL_COOLDOWN_MS) return false
+  emailCooldowns.set(key, Date.now())
+  return true
+}
+
+// ============================================
 // LOGGER CLASS
 // ============================================
 
@@ -100,7 +114,6 @@ class Logger {
   }
 
   private log(entry: LogEntry): void {
-    // เก็บ serialized error message
     if (entry.error) {
       entry.errorMessage = this.getErrorMessage(entry.error)
     }
@@ -121,8 +134,10 @@ class Logger {
       case 'error':
       case 'fatal':
         console.error(msg, entry.error ? this.formatError(entry.error) : '', entry.metadata ? JSON.stringify(entry.metadata) : '')
-        // แจ้ง Telegram ทันที เมื่อมี error/fatal
-        this.notifyTelegram(entry).catch(() => {})
+        // แจ้ง Email ทันที เมื่อมี error/fatal (throttled)
+        if (shouldSendEmail(entry.context || 'system')) {
+          this.notifyEmail(entry).catch(() => {})
+        }
         break
     }
   }
@@ -144,35 +159,91 @@ class Logger {
   }
 
   /**
-   * แจ้ง Telegram ทันที — ส่งตรงถึง Chat ID ที่ตั้งค่าไว้
+   * แจ้ง Email ทันที — ส่งไปยัง ALERT_EMAIL ที่ตั้งค่าไว้ใน .env
    * ถ้าเว็บล่ม / payment error / withdrawal error จะได้รู้ทันที
+   * Throttled: ส่งได้ 1 ฉบับต่อ context ทุก 5 นาที (ป้องกัน spam)
    */
-  private async notifyTelegram(entry: LogEntry): Promise<void> {
-    const botToken = process.env.TELEGRAM_BOT_TOKEN
-    const chatId = process.env.TELEGRAM_CHAT_ID
+  private async notifyEmail(entry: LogEntry): Promise<void> {
+    const alertEmail = process.env.ALERT_EMAIL
+    if (!alertEmail) return
 
-    if (!botToken || !chatId) return
+    // ใช้ SMTP ตรง ๆ ไม่พึ่ง lib/email.ts (ป้องกัน circular dependency)
+    const host = process.env.SMTP_HOST
+    const port = parseInt(process.env.SMTP_PORT || '587')
+    const user = process.env.SMTP_USER
+    const pass = process.env.SMTP_PASS
+    const fromEmail = process.env.EMAIL_FROM || user
+
+    if (!host || !user || !pass) return
 
     const emoji = entry.level === 'fatal' ? '🚨' : '⚠️'
     const appName = process.env.NEXT_PUBLIC_SITE_NAME || 'TechTrade'
-    const text = [
-      `${emoji} *[${appName}] ${entry.level.toUpperCase()}*`,
-      `📋 Context: ${entry.context || 'system'}`,
-      `📝 ${entry.message}`,
-      entry.error ? `❌ ${this.formatError(entry.error).substring(0, 500)}` : '',
-      entry.userId ? `👤 User: ${entry.userId}` : '',
-      `🕐 ${entry.timestamp}`,
-    ].filter(Boolean).join('\n')
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
+
+    const subject = `${emoji} [${appName}] ${entry.level.toUpperCase()} — ${entry.context || 'system'}: ${entry.message.substring(0, 80)}`
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: ${entry.level === 'fatal' ? '#dc2626' : '#f59e0b'}; padding: 20px; text-align: center;">
+          <h2 style="color: white; margin: 0;">${emoji} ${appName} — ${entry.level.toUpperCase()}</h2>
+        </div>
+        <div style="padding: 24px; background: #f9fafb; border: 1px solid #e5e7eb;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280; width: 120px;">Context:</td>
+              <td style="padding: 8px 0; font-weight: bold;">${entry.context || 'system'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280;">Message:</td>
+              <td style="padding: 8px 0;">${entry.message}</td>
+            </tr>
+            ${entry.errorMessage ? `
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280;">Error:</td>
+              <td style="padding: 8px 0; color: #dc2626; font-family: monospace; font-size: 13px;">${entry.errorMessage}</td>
+            </tr>
+            ` : ''}
+            ${entry.userId ? `
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280;">User ID:</td>
+              <td style="padding: 8px 0; font-family: monospace;">${entry.userId}</td>
+            </tr>
+            ` : ''}
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280;">Time:</td>
+              <td style="padding: 8px 0;">${new Date(entry.timestamp).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}</td>
+            </tr>
+          </table>
+          ${appUrl ? `
+          <div style="margin-top: 20px; text-align: center;">
+            <a href="${appUrl}/admin/logs" style="display: inline-block; padding: 10px 24px; background: #111827; color: white; text-decoration: none; border-radius: 6px;">
+              ดู Logs ทั้งหมด
+            </a>
+          </div>
+          ` : ''}
+        </div>
+        <div style="background: #111827; padding: 12px; text-align: center;">
+          <p style="color: #6b7280; font-size: 11px; margin: 0;">
+            แจ้งเตือนอัตโนมัติจาก ${appName} System Monitor
+          </p>
+        </div>
+      </div>
+    `
 
     try {
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text,
-          parse_mode: 'Markdown',
-        }),
+      const nodemailer = await import('nodemailer')
+      const transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure: port === 465,
+        auth: { user, pass },
+      })
+
+      await transporter.sendMail({
+        from: `"${appName} Alert" <${fromEmail}>`,
+        to: alertEmail,
+        subject,
+        html,
       })
     } catch {
       // Silent fail — logger ไม่ควรทำให้ระบบพัง

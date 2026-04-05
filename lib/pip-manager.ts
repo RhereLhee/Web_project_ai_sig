@@ -33,6 +33,11 @@ const COLORS = {
 
 type PipStateListener = (active: boolean) => void
 
+// PiP Mode:
+// 'native' = Chrome Video PiP API (Desktop Chrome)
+// 'popup'  = Popup window fallback (มือถือ iOS/Android + browser อื่น)
+type PipMode = 'native' | 'popup'
+
 class PipManager {
   private static instance: PipManager | null = null
 
@@ -42,9 +47,15 @@ class PipManager {
   private stream: MediaStream | null = null
   private ctx: CanvasRenderingContext2D | null = null
 
+  // Popup window (fallback สำหรับมือถือ)
+  private popupWindow: Window | null = null
+  private popupCanvas: HTMLCanvasElement | null = null
+  private popupCtx: CanvasRenderingContext2D | null = null
+
   // State
   private isActive = false
   private isSupported = false
+  private pipMode: PipMode = 'native'
   private renderLoopId: number | null = null
   private lastRenderTime = 0
   private frameInterval = 1000 / PIP_FPS
@@ -79,9 +90,21 @@ class PipManager {
   // ============================================
 
   private init(): void {
-    // Check PiP support
-    this.isSupported = 'pictureInPictureEnabled' in document && 
-                       (document as any).pictureInPictureEnabled
+    // Check native PiP support
+    const hasNativePip = 'pictureInPictureEnabled' in document &&
+                         (document as any).pictureInPictureEnabled
+
+    // มือถือ + iPad → ใช้ popup fallback (native PiP ไม่ค่อยทำงาน)
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+
+    if (hasNativePip && !isMobile) {
+      this.pipMode = 'native'
+    } else {
+      this.pipMode = 'popup'
+    }
+
+    // รองรับทุก platform (native PiP หรือ popup ก็ได้)
+    this.isSupported = true
 
     // Cleanup any existing PiP elements (from hot reload or previous instances)
     const existingVideos = document.querySelectorAll('video[data-pip-manager]')
@@ -171,62 +194,157 @@ class PipManager {
   }
 
   async start(): Promise<void> {
-    if (!this.video || !this.canvas || !this.isSupported) {
-      return
+    if (this.isActive) return
+
+    if (this.pipMode === 'native') {
+      await this.startNativePip()
+    } else {
+      await this.startPopupPip()
     }
-    if (this.isActive) {
-      return
-    }
+  }
+
+  // ============================================
+  // MODE 1: Native PiP (Desktop Chrome)
+  // ============================================
+
+  private async startNativePip(): Promise<void> {
+    if (!this.video || !this.canvas) return
 
     try {
-      // Draw initial frame
       this.drawPipCanvas()
-
-      // Create stream from canvas
       this.stream = (this.canvas as any).captureStream(PIP_FPS)
-      
-      // Add silent audio track to make Chrome treat it as a real video
+
+      // Silent audio track สำหรับ Chrome
       try {
         const audioCtx = new AudioContext()
         const oscillator = audioCtx.createOscillator()
         const gainNode = audioCtx.createGain()
-        gainNode.gain.value = 0 // Silent
+        gainNode.gain.value = 0
         oscillator.connect(gainNode)
         const dest = audioCtx.createMediaStreamDestination()
         gainNode.connect(dest)
         oscillator.start()
-        
+
         const audioTrack = dest.stream.getAudioTracks()[0]
         if (audioTrack && this.stream) {
           this.stream.addTrack(audioTrack)
         }
-      } catch (e) {
-        // Could not add audio track - continue anyway
+      } catch {
+        // ไม่ต้อง audio ก็ได้
       }
-      
+
       this.video.srcObject = this.stream
-
-      // Start video playback
       await this.video.play()
-
-      // Request PiP
       await (this.video as any).requestPictureInPicture()
-
-      // Start render loop
       this.startRenderLoop()
 
     } catch (error) {
-      console.error('Failed to start PiP:', error)
+      console.error('Native PiP failed, trying popup fallback:', error)
+      // Fallback to popup
+      this.pipMode = 'popup'
+      await this.startPopupPip()
+    }
+  }
+
+  // ============================================
+  // MODE 2: Popup Window (มือถือ iOS/Android)
+  // เทคนิคเดียวกับ Sigzy — เปิดหน้าต่างแยกที่ลอยทับ
+  // ============================================
+
+  private async startPopupPip(): Promise<void> {
+    try {
+      // ขนาดหน้าต่าง popup
+      const popupWidth = 360
+      const popupHeight = 240
+      const left = window.screen.width - popupWidth - 20
+      const top = 80
+
+      // เปิด popup window
+      this.popupWindow = window.open(
+        '',
+        'TechTradeSignal',
+        `width=${popupWidth},height=${popupHeight},left=${left},top=${top},resizable=yes,scrollbars=no,toolbar=no,menubar=no,location=no,status=no`
+      )
+
+      if (!this.popupWindow) {
+        alert('กรุณาอนุญาต Popup เพื่อใช้งาน Signal ลอยหน้าจอ')
+        return
+      }
+
+      // เขียน HTML สำหรับ popup
+      this.popupWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>TechTrade Signal</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { background: #0a0a0a; overflow: hidden; touch-action: none; }
+            canvas { width: 100vw; height: 100vh; display: block; }
+          </style>
+        </head>
+        <body>
+          <canvas id="signal-canvas"></canvas>
+        </body>
+        </html>
+      `)
+      this.popupWindow.document.close()
+
+      // รอ DOM โหลด
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      // สร้าง canvas ใน popup
+      this.popupCanvas = this.popupWindow.document.getElementById('signal-canvas') as HTMLCanvasElement
+      if (!this.popupCanvas) return
+
+      this.popupCanvas.width = PIP_WIDTH
+      this.popupCanvas.height = PIP_HEIGHT
+      this.popupCtx = this.popupCanvas.getContext('2d', { alpha: false })
+
+      // ตรวจจับเมื่อ popup ถูกปิด
+      const checkPopup = setInterval(() => {
+        if (!this.popupWindow || this.popupWindow.closed) {
+          clearInterval(checkPopup)
+          this.isActive = false
+          this.popupWindow = null
+          this.popupCanvas = null
+          this.popupCtx = null
+          this.stopRenderLoop()
+          this.notifyStateListeners(false)
+        }
+      }, 500)
+
+      this.isActive = true
+      this.notifyStateListeners(true)
+      this.startRenderLoop()
+
+    } catch (error) {
+      console.error('Popup PiP failed:', error)
       this.isActive = false
-      this.cleanupStream()
     }
   }
 
   async stop(): Promise<void> {
     try {
+      // ปิด native PiP
       if ((document as any).pictureInPictureElement) {
         await (document as any).exitPictureInPicture()
       }
+
+      // ปิด popup window
+      if (this.popupWindow && !this.popupWindow.closed) {
+        this.popupWindow.close()
+      }
+      this.popupWindow = null
+      this.popupCanvas = null
+      this.popupCtx = null
+
+      this.isActive = false
+      this.stopRenderLoop()
+      this.cleanupStream()
+      this.notifyStateListeners(false)
     } catch (error) {
       console.error('Failed to stop PiP:', error)
     }
@@ -279,11 +397,31 @@ class PipManager {
   // ============================================
 
   private drawPipCanvas(): void {
-    if (!this.ctx || !this.canvas) return
+    // วาดลง canvas หลัก (native PiP) หรือ popup canvas
+    const ctx = this.pipMode === 'popup' && this.popupCtx
+      ? this.popupCtx
+      : this.ctx
 
-    const ctx = this.ctx
-    const width = this.canvas.width
-    const height = this.canvas.height
+    if (!ctx) return
+
+    // Resize popup canvas ตามขนาดหน้าต่าง
+    if (this.pipMode === 'popup' && this.popupCanvas && this.popupWindow && !this.popupWindow.closed) {
+      const w = this.popupWindow.innerWidth
+      const h = this.popupWindow.innerHeight
+      if (this.popupCanvas.width !== w || this.popupCanvas.height !== h) {
+        this.popupCanvas.width = w * (this.popupWindow.devicePixelRatio || 1)
+        this.popupCanvas.height = h * (this.popupWindow.devicePixelRatio || 1)
+        this.popupCanvas.style.width = w + 'px'
+        this.popupCanvas.style.height = h + 'px'
+        ctx.scale(this.popupWindow.devicePixelRatio || 1, this.popupWindow.devicePixelRatio || 1)
+      }
+    }
+    const width = this.pipMode === 'popup' && this.popupWindow && !this.popupWindow.closed
+      ? this.popupWindow.innerWidth
+      : this.canvas?.width || PIP_WIDTH
+    const height = this.pipMode === 'popup' && this.popupWindow && !this.popupWindow.closed
+      ? this.popupWindow.innerHeight
+      : this.canvas?.height || PIP_HEIGHT
 
     // Clear canvas
     ctx.fillStyle = COLORS.background
@@ -601,6 +739,10 @@ class PipManager {
   // CLEANUP
   // ============================================
 
+  getPipMode(): PipMode {
+    return this.pipMode
+  }
+
   destroy(): void {
     this.stop()
 
@@ -618,9 +760,16 @@ class PipManager {
       this.video.parentNode.removeChild(this.video)
     }
 
+    if (this.popupWindow && !this.popupWindow.closed) {
+      this.popupWindow.close()
+    }
+
     this.canvas = null
     this.video = null
     this.ctx = null
+    this.popupWindow = null
+    this.popupCanvas = null
+    this.popupCtx = null
   }
 }
 

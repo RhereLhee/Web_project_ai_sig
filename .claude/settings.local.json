@@ -8,7 +8,8 @@
       "Bash(grep -r \"pathname\\\\|searchParams\\\\|req.url\\\\|req.headers\" /c/projectP4/techtrade/app/api --include=*.ts --exclude-dir=node_modules --exclude-dir=.next)",
       "Bash(find /c/projectP4/techtrade -maxdepth 1 -name *.config.* -o -name middleware.ts)",
       "Bash(grep -v \"//\")",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(xargs grep:*)"
     ]
   }
 }

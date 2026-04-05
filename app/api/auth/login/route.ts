@@ -238,6 +238,13 @@ export async function POST(req: NextRequest) {
       userAgent,
     })
 
+    // Activity log — ดูได้ใน Admin > Logs
+    logger.info(`เข้าสู่ระบบ: ${user.email} (${user.role})`, {
+      context: 'auth',
+      userId: user.id,
+      metadata: { email: user.email, role: user.role, ip },
+    })
+
     // ============================================
     // 8. SET COOKIES & RESPONSE
     // ============================================

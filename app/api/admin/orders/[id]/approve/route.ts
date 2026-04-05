@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth'
 import { distributeCommission } from '@/lib/affiliate'
+import { logger } from '@/lib/logger'
+import { isAffiliateEnabled } from '@/lib/system-settings'
 
 export async function POST(
   request: NextRequest,
@@ -114,18 +116,37 @@ export async function POST(
     }
 
     // ============================================
-    // 3. DISTRIBUTE AFFILIATE COMMISSION
+    // 3. DISTRIBUTE AFFILIATE COMMISSION (ถ้าเปิดใช้งาน)
     // ============================================
-    const affiliateResult = await distributeCommission(orderId, order.userId)
+    const affiliateOn = await isAffiliateEnabled()
+    let affiliateResult = { success: true, distributed: 0, commissions: [] as { amount: number }[] }
 
-    if (affiliateResult.success && affiliateResult.distributed > 0) {
-      console.log(`[Order ${orderId}] Distributed ${affiliateResult.distributed} commissions`)
+    if (affiliateOn) {
+      affiliateResult = await distributeCommission(orderId, order.userId)
+      if (affiliateResult.success && affiliateResult.distributed > 0) {
+        logger.info(`Affiliate commission: ${affiliateResult.distributed} คน สำหรับ order ${orderId}`, {
+          context: 'payment',
+          metadata: { orderId, distributed: affiliateResult.distributed },
+        })
+      }
+    } else {
+      logger.info(`Affiliate ถูกล็อค — ข้ามการแจก commission สำหรับ order ${orderId}`, {
+        context: 'payment',
+        metadata: { orderId },
+      })
     }
+
+    // Activity log
+    logger.info(`อนุมัติออเดอร์: ${order.orderNumber || orderId} (${order.orderType}) - ${order.user.email}`, {
+      context: 'payment',
+      userId: order.userId,
+      metadata: { orderId, orderType: order.orderType, amount: order.finalAmount },
+    })
 
     // ============================================
     // 4. RESPONSE
     // ============================================
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
       message: 'อนุมัติออเดอร์สำเร็จ',
       affiliate: {
