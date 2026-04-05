@@ -4,6 +4,8 @@ import { redirect } from "next/navigation"
 import { SignalRoomContent } from "@/components/SignalRoomContent"
 import { SignalPackages } from "./SignalPackages"
 import { prisma } from "@/lib/prisma"
+import { isFreeTrial, getFreeTrialDays } from "@/lib/system-settings"
+import { logger } from "@/lib/logger"
 
 // ============================================
 // SIGNAL PLAN CONFIG
@@ -18,10 +20,50 @@ export const SIGNAL_PLANS = [
 export const REFERRAL_DISCOUNT = 300
 
 export default async function SignalsPage() {
-  const user = await getUserWithSubscription()
+  let user = await getUserWithSubscription()
   if (!user) redirect("/login")
 
-  const hasSignal = hasSignalAccess(user)
+  let hasSignal = hasSignalAccess(user)
+
+  // ============================================
+  // Auto-grant Free Trial สำหรับ user ที่ยังไม่มี subscription
+  // ============================================
+  if (!hasSignal) {
+    const freeTrialOn = await isFreeTrial()
+    if (freeTrialOn) {
+      // เช็คว่าเคยได้ free trial ไปแล้วหรือยัง (price = 0)
+      const existingTrial = await prisma.signalSubscription.findFirst({
+        where: { userId: user.id, price: 0 },
+      })
+
+      if (!existingTrial) {
+        const trialDays = await getFreeTrialDays()
+        const startDate = new Date()
+        const endDate = new Date()
+        endDate.setDate(endDate.getDate() + trialDays)
+
+        await prisma.signalSubscription.create({
+          data: {
+            userId: user.id,
+            status: 'ACTIVE',
+            startDate,
+            endDate,
+            price: 0,
+          },
+        })
+
+        logger.info(`Auto Free Trial ${trialDays} วัน: ${user.email}`, {
+          context: 'signal',
+          userId: user.id,
+          metadata: { trialDays, endDate: endDate.toISOString() },
+        })
+
+        // Refresh user data
+        user = (await getUserWithSubscription())!
+        hasSignal = hasSignalAccess(user)
+      }
+    }
+  }
 
   // เช็คว่ามี referral หรือไม่
   const fullUser = await prisma.user.findUnique({
