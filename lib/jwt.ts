@@ -2,15 +2,26 @@
 import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
 
-if (!process.env.JWT_ACCESS_SECRET) {
-  throw new Error('JWT_ACCESS_SECRET environment variable is required')
-}
-if (!process.env.JWT_REFRESH_SECRET) {
-  throw new Error('JWT_REFRESH_SECRET environment variable is required')
+// ใช้ lazy initialization — ไม่ throw ตอน build time
+// แต่จะ throw ตอน runtime ถ้าไม่มี secret
+function getAccessSecret() {
+  const secret = process.env.JWT_ACCESS_SECRET
+  if (!secret) throw new Error('JWT_ACCESS_SECRET environment variable is required')
+  return new TextEncoder().encode(secret)
 }
 
-const ACCESS_SECRET = new TextEncoder().encode(process.env.JWT_ACCESS_SECRET)
-const REFRESH_SECRET = new TextEncoder().encode(process.env.JWT_REFRESH_SECRET)
+function getRefreshSecret() {
+  const secret = process.env.JWT_REFRESH_SECRET
+  if (!secret) throw new Error('JWT_REFRESH_SECRET environment variable is required')
+  return new TextEncoder().encode(secret)
+}
+
+// Cache เพื่อไม่ต้อง encode ทุกครั้ง
+let _accessSecret: Uint8Array | null = null
+let _refreshSecret: Uint8Array | null = null
+
+const ACCESS_SECRET = (() => { if (!_accessSecret) _accessSecret = getAccessSecret(); return _accessSecret })()
+const REFRESH_SECRET = (() => { if (!_refreshSecret) _refreshSecret = getRefreshSecret(); return _refreshSecret })()
 
 // Token expiry - ปรับให้เหมาะสมกับการใช้งานจริง
 const ACCESS_EXPIRY = '15m'     // 15 นาที (มาตรฐาน)
