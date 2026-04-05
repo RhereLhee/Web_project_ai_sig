@@ -94,16 +94,18 @@ class PipManager {
     const hasNativePip = 'pictureInPictureEnabled' in document &&
                          (document as any).pictureInPictureEnabled
 
-    // มือถือ + iPad → ใช้ popup fallback (native PiP ไม่ค่อยทำงาน)
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent)
 
-    if (hasNativePip && !isMobile) {
+    // Android Chrome รองรับ native PiP → ลอยเหนือแอปอื่นได้
+    // iOS ไม่รองรับ PiP จาก canvas stream → ใช้ overlay ในเว็บแทน
+    // Desktop Chrome → native PiP
+    if (hasNativePip && !isIOS) {
       this.pipMode = 'native'
     } else {
       this.pipMode = 'popup'
     }
 
-    // รองรับทุก platform (native PiP หรือ popup ก็ได้)
+    // รองรับทุก platform (native PiP หรือ overlay ก็ได้)
     this.isSupported = true
 
     // Cleanup any existing PiP elements (from hot reload or previous instances)
@@ -204,7 +206,8 @@ class PipManager {
   }
 
   // ============================================
-  // MODE 1: Native PiP (Desktop Chrome)
+  // MODE 1: Native PiP (Desktop Chrome + Android Chrome)
+  // บน Android จะลอยเหนือแอปอื่นได้จริง
   // ============================================
 
   private async startNativePip(): Promise<void> {
