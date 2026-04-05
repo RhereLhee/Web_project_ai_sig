@@ -90,22 +90,23 @@ class PipManager {
   // ============================================
 
   private init(): void {
-    // Check native PiP support
+    // ลอง native PiP ทุก platform ก่อน (Chrome, Safari, Edge)
+    // iOS Safari 14+ รองรับ PiP สำหรับ video element
+    // Android Chrome รองรับ PiP ลอยเหนือแอปอื่น
+    // ถ้า native PiP ล้มเหลว → fallback เป็น overlay อัตโนมัติ
     const hasNativePip = 'pictureInPictureEnabled' in document &&
                          (document as any).pictureInPictureEnabled
 
-    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+    // Safari บน iOS ใช้ webkit prefix
+    const hasWebkitPip = 'webkitSupportsPresentationMode' in HTMLVideoElement.prototype
 
-    // Android Chrome รองรับ native PiP → ลอยเหนือแอปอื่นได้
-    // iOS ไม่รองรับ PiP จาก canvas stream → ใช้ overlay ในเว็บแทน
-    // Desktop Chrome → native PiP
-    if (hasNativePip && !isIOS) {
+    if (hasNativePip || hasWebkitPip) {
       this.pipMode = 'native'
     } else {
       this.pipMode = 'popup'
     }
 
-    // รองรับทุก platform (native PiP หรือ overlay ก็ได้)
+    // รองรับทุก platform
     this.isSupported = true
 
     // Cleanup any existing PiP elements (from hot reload or previous instances)
@@ -121,7 +122,7 @@ class PipManager {
     this.canvas.style.display = 'none'
     this.canvas.setAttribute('data-pip-manager', 'true')
     document.body.appendChild(this.canvas)
-    
+
     // Use optimized context for animations
     this.ctx = this.canvas.getContext('2d', {
       alpha: false,
@@ -129,22 +130,24 @@ class PipManager {
       willReadFrequently: false
     })
 
-    // Create hidden video
+    // Create hidden video — ต้องมีขนาดจริง ไม่ใช่ display:none
+    // iOS Safari ต้อง "เห็น" video ถึงจะอนุญาต PiP
     this.video = document.createElement('video')
     this.video.muted = true
     this.video.playsInline = true
     this.video.autoplay = true
     this.video.controls = false
     this.video.disablePictureInPicture = false
-    this.video.style.display = 'none'
-    this.video.style.backgroundColor = 'transparent'
-    this.video.style.opacity = '1'
     this.video.setAttribute('playsinline', '')
     this.video.setAttribute('webkit-playsinline', '')
     this.video.setAttribute('data-pip-manager', 'true')
+    // autopictureinpicture — เมื่อ user ปัดออกจาก browser จะเข้า PiP อัตโนมัติ
+    this.video.setAttribute('autopictureinpicture', '')
+    // ซ่อนแต่ยังมีขนาด (iOS ต้องการ)
+    this.video.style.cssText = 'position:fixed;bottom:0;right:0;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-1;'
     document.body.appendChild(this.video)
 
-    // Setup video events
+    // Setup video events — Standard PiP
     this.video.addEventListener('enterpictureinpicture', () => {
       this.isActive = true
       this.notifyStateListeners(true)
@@ -155,6 +158,27 @@ class PipManager {
       this.stopRenderLoop()
       this.cleanupStream()
       this.notifyStateListeners(false)
+    })
+
+    // Safari webkit PiP events
+    this.video.addEventListener('webkitpresentationmodechanged', () => {
+      const mode = (this.video as any)?.webkitPresentationMode
+      if (mode === 'picture-in-picture') {
+        this.isActive = true
+        this.notifyStateListeners(true)
+      } else if (mode === 'inline') {
+        this.isActive = false
+        this.stopRenderLoop()
+        this.cleanupStream()
+        this.notifyStateListeners(false)
+      }
+    })
+
+    // เมื่อ user ปัดออกจากหน้าเว็บ → auto PiP
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && this.isActive && this.video) {
+        // PiP จะทำงานต่อเมื่อ user ออกจาก browser
+      }
     })
 
     // Subscribe to signal service
@@ -206,8 +230,9 @@ class PipManager {
   }
 
   // ============================================
-  // MODE 1: Native PiP (Desktop Chrome + Android Chrome)
-  // บน Android จะลอยเหนือแอปอื่นได้จริง
+  // MODE 1: Native PiP (Chrome + Safari ทุก platform)
+  // Android/Desktop → ลอยเหนือแอปอื่นได้
+  // iOS Safari → ลอยเหนือแอปอื่นได้ (ถ้า video element ทำงาน)
   // ============================================
 
   private async startNativePip(): Promise<void> {
@@ -217,9 +242,9 @@ class PipManager {
       this.drawPipCanvas()
       this.stream = (this.canvas as any).captureStream(PIP_FPS)
 
-      // Silent audio track สำหรับ Chrome
+      // Silent audio track — ช่วยให้ PiP ทำงานได้ดีขึ้นบน iOS/Android
       try {
-        const audioCtx = new AudioContext()
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)()
         const oscillator = audioCtx.createOscillator()
         const gainNode = audioCtx.createGain()
         gainNode.gain.value = 0
@@ -238,12 +263,21 @@ class PipManager {
 
       this.video.srcObject = this.stream
       await this.video.play()
-      await (this.video as any).requestPictureInPicture()
+
+      // ลอง standard PiP API ก่อน
+      if ('requestPictureInPicture' in this.video) {
+        await (this.video as any).requestPictureInPicture()
+      }
+      // Safari iOS fallback — webkit presentation mode
+      else if ((this.video as any).webkitSupportsPresentationMode) {
+        (this.video as any).webkitSetPresentationMode('picture-in-picture')
+      }
+
       this.startRenderLoop()
 
     } catch (error) {
-      console.error('Native PiP failed, trying popup fallback:', error)
-      // Fallback to popup
+      console.error('Native PiP failed, trying overlay fallback:', error)
+      // Fallback to overlay
       this.pipMode = 'popup'
       await this.startPopupPip()
     }
@@ -373,6 +407,11 @@ class PipManager {
       // ปิด native PiP
       if ((document as any).pictureInPictureElement) {
         await (document as any).exitPictureInPicture()
+      }
+
+      // ปิด webkit PiP (Safari)
+      if (this.video && (this.video as any).webkitPresentationMode === 'picture-in-picture') {
+        (this.video as any).webkitSetPresentationMode('inline')
       }
 
       // ปิด popup window
