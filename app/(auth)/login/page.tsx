@@ -211,14 +211,16 @@ export default function LoginPage() {
   // Background Component
   // ============================================
   const Background = () => (
-    <div className="absolute inset-0 z-0">
+    <div className="absolute inset-0 z-0 bg-gray-900">
       <Image
         src="/auth-bg1.png"
         alt="Background"
         fill
-        className="object-cover"
+        className="object-cover transition-opacity duration-300"
         priority
-        quality={90}
+        quality={85}
+        sizes="100vw"
+        placeholder="empty"
       />
       <div className="absolute inset-0 bg-black/40" />
     </div>
@@ -229,7 +231,7 @@ export default function LoginPage() {
   // ============================================
   if (step === 'device_verify') {
     return (
-      <div className="min-h-screen relative flex items-center justify-center p-4">
+      <div className="min-h-screen relative flex items-center justify-center p-4 bg-gray-900">
         <Background />
         <div className="relative z-10 w-full max-w-md">
           <div className="backdrop-blur-xl bg-white/10 border border-white/20 rounded-2xl p-8 shadow-2xl">
@@ -324,7 +326,7 @@ export default function LoginPage() {
   // ============================================
   if (step === '2fa') {
     return (
-      <div className="min-h-screen relative flex items-center justify-center p-4">
+      <div className="min-h-screen relative flex items-center justify-center p-4 bg-gray-900">
         <Background />
         <div className="relative z-10 w-full max-w-md">
           <div className="backdrop-blur-xl bg-white/10 border border-white/20 rounded-2xl p-8 shadow-2xl">
@@ -397,7 +399,7 @@ export default function LoginPage() {
   // RENDER: Login Form
   // ============================================
   return (
-    <div className="min-h-screen relative flex items-center justify-center p-4">
+    <div className="min-h-screen relative flex items-center justify-center p-4 bg-gray-900">
       <Background />
       <div className="relative z-10 w-full max-w-md">
         {/* Glass Card */}

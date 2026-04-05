@@ -247,83 +247,122 @@ class PipManager {
   }
 
   // ============================================
-  // MODE 2: Popup Window (มือถือ iOS/Android)
-  // เทคนิคเดียวกับ Sigzy — เปิดหน้าต่างแยกที่ลอยทับ
+  // MODE 2: Overlay (มือถือ iOS/Android)
+  // ใช้ fixed overlay แทน popup — ทำงานได้ทุก browser
   // ============================================
+
+  private overlayContainer: HTMLDivElement | null = null
 
   private async startPopupPip(): Promise<void> {
     try {
-      // ขนาดหน้าต่าง popup
-      const popupWidth = 360
-      const popupHeight = 240
-      const left = window.screen.width - popupWidth - 20
-      const top = 80
+      // สร้าง overlay container
+      this.overlayContainer = document.createElement('div')
+      this.overlayContainer.id = 'pip-overlay'
+      this.overlayContainer.style.cssText = `
+        position: fixed;
+        bottom: 80px;
+        right: 8px;
+        width: 280px;
+        height: 200px;
+        z-index: 9999;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        border: 2px solid rgba(0,228,118,0.3);
+        touch-action: none;
+        transition: transform 0.2s ease;
+      `
 
-      // เปิด popup window
-      this.popupWindow = window.open(
-        '',
-        'TechTradeSignal',
-        `width=${popupWidth},height=${popupHeight},left=${left},top=${top},resizable=yes,scrollbars=no,toolbar=no,menubar=no,location=no,status=no`
-      )
+      // ปุ่มปิด
+      const closeBtn = document.createElement('button')
+      closeBtn.style.cssText = `
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        z-index: 10000;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: rgba(0,0,0,0.7);
+        color: white;
+        border: none;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      `
+      closeBtn.textContent = '✕'
+      closeBtn.addEventListener('click', () => this.stop())
 
-      if (!this.popupWindow) {
-        alert('กรุณาอนุญาต Popup เพื่อใช้งาน Signal ลอยหน้าจอ')
-        return
-      }
-
-      // เขียน HTML สำหรับ popup
-      this.popupWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1">
-          <title>TechTrade Signal</title>
-          <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { background: #0a0a0a; overflow: hidden; touch-action: none; }
-            canvas { width: 100vw; height: 100vh; display: block; }
-          </style>
-        </head>
-        <body>
-          <canvas id="signal-canvas"></canvas>
-        </body>
-        </html>
-      `)
-      this.popupWindow.document.close()
-
-      // รอ DOM โหลด
-      await new Promise(resolve => setTimeout(resolve, 100))
-
-      // สร้าง canvas ใน popup
-      this.popupCanvas = this.popupWindow.document.getElementById('signal-canvas') as HTMLCanvasElement
-      if (!this.popupCanvas) return
-
+      // สร้าง canvas
+      this.popupCanvas = document.createElement('canvas')
       this.popupCanvas.width = PIP_WIDTH
       this.popupCanvas.height = PIP_HEIGHT
+      this.popupCanvas.style.cssText = 'width: 100%; height: 100%; display: block;'
       this.popupCtx = this.popupCanvas.getContext('2d', { alpha: false })
 
-      // ตรวจจับเมื่อ popup ถูกปิด
-      const checkPopup = setInterval(() => {
-        if (!this.popupWindow || this.popupWindow.closed) {
-          clearInterval(checkPopup)
-          this.isActive = false
-          this.popupWindow = null
-          this.popupCanvas = null
-          this.popupCtx = null
-          this.stopRenderLoop()
-          this.notifyStateListeners(false)
-        }
-      }, 500)
+      this.overlayContainer.appendChild(this.popupCanvas)
+      this.overlayContainer.appendChild(closeBtn)
+      document.body.appendChild(this.overlayContainer)
+
+      // ลาก overlay ได้ (touch drag)
+      this.setupDrag(this.overlayContainer)
 
       this.isActive = true
       this.notifyStateListeners(true)
       this.startRenderLoop()
 
     } catch (error) {
-      console.error('Popup PiP failed:', error)
+      console.error('Overlay PiP failed:', error)
       this.isActive = false
     }
+  }
+
+  private setupDrag(el: HTMLDivElement): void {
+    let startX = 0, startY = 0, origX = 0, origY = 0, dragging = false
+
+    const onStart = (clientX: number, clientY: number) => {
+      dragging = true
+      startX = clientX
+      startY = clientY
+      const rect = el.getBoundingClientRect()
+      origX = rect.left
+      origY = rect.top
+      el.style.transition = 'none'
+    }
+
+    const onMove = (clientX: number, clientY: number) => {
+      if (!dragging) return
+      const dx = clientX - startX
+      const dy = clientY - startY
+      el.style.left = `${origX + dx}px`
+      el.style.top = `${origY + dy}px`
+      el.style.right = 'auto'
+      el.style.bottom = 'auto'
+    }
+
+    const onEnd = () => {
+      dragging = false
+      el.style.transition = 'transform 0.2s ease'
+    }
+
+    el.addEventListener('touchstart', (e) => {
+      const t = e.touches[0]
+      onStart(t.clientX, t.clientY)
+    }, { passive: true })
+
+    el.addEventListener('touchmove', (e) => {
+      const t = e.touches[0]
+      onMove(t.clientX, t.clientY)
+      e.preventDefault()
+    }, { passive: false })
+
+    el.addEventListener('touchend', onEnd)
+
+    el.addEventListener('mousedown', (e) => onStart(e.clientX, e.clientY))
+    document.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY))
+    document.addEventListener('mouseup', onEnd)
   }
 
   async stop(): Promise<void> {
@@ -338,6 +377,13 @@ class PipManager {
         this.popupWindow.close()
       }
       this.popupWindow = null
+
+      // ปิด overlay
+      if (this.overlayContainer && this.overlayContainer.parentNode) {
+        this.overlayContainer.parentNode.removeChild(this.overlayContainer)
+      }
+      this.overlayContainer = null
+
       this.popupCanvas = null
       this.popupCtx = null
 
@@ -404,23 +450,22 @@ class PipManager {
 
     if (!ctx) return
 
-    // Resize popup canvas ตามขนาดหน้าต่าง
-    if (this.pipMode === 'popup' && this.popupCanvas && this.popupWindow && !this.popupWindow.closed) {
-      const w = this.popupWindow.innerWidth
-      const h = this.popupWindow.innerHeight
-      if (this.popupCanvas.width !== w || this.popupCanvas.height !== h) {
-        this.popupCanvas.width = w * (this.popupWindow.devicePixelRatio || 1)
-        this.popupCanvas.height = h * (this.popupWindow.devicePixelRatio || 1)
-        this.popupCanvas.style.width = w + 'px'
-        this.popupCanvas.style.height = h + 'px'
-        ctx.scale(this.popupWindow.devicePixelRatio || 1, this.popupWindow.devicePixelRatio || 1)
+    // Resize overlay canvas ตามขนาด container
+    if (this.pipMode === 'popup' && this.popupCanvas && this.overlayContainer) {
+      const w = this.overlayContainer.clientWidth
+      const h = this.overlayContainer.clientHeight
+      const dpr = window.devicePixelRatio || 1
+      if (this.popupCanvas.width !== w * dpr || this.popupCanvas.height !== h * dpr) {
+        this.popupCanvas.width = w * dpr
+        this.popupCanvas.height = h * dpr
+        ctx.scale(dpr, dpr)
       }
     }
-    const width = this.pipMode === 'popup' && this.popupWindow && !this.popupWindow.closed
-      ? this.popupWindow.innerWidth
+    const width = this.pipMode === 'popup' && this.overlayContainer
+      ? this.overlayContainer.clientWidth
       : this.canvas?.width || PIP_WIDTH
-    const height = this.pipMode === 'popup' && this.popupWindow && !this.popupWindow.closed
-      ? this.popupWindow.innerHeight
+    const height = this.pipMode === 'popup' && this.overlayContainer
+      ? this.overlayContainer.clientHeight
       : this.canvas?.height || PIP_HEIGHT
 
     // Clear canvas
@@ -764,10 +809,15 @@ class PipManager {
       this.popupWindow.close()
     }
 
+    if (this.overlayContainer && this.overlayContainer.parentNode) {
+      this.overlayContainer.parentNode.removeChild(this.overlayContainer)
+    }
+
     this.canvas = null
     this.video = null
     this.ctx = null
     this.popupWindow = null
+    this.overlayContainer = null
     this.popupCanvas = null
     this.popupCtx = null
   }

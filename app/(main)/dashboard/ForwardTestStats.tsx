@@ -47,22 +47,22 @@ export async function ForwardTestStats() {
         </div>
 
         {/* Main Metrics */}
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div className="text-center">
-            <p className="text-3xl font-bold text-gray-900">{overall.winRate.toFixed(1)}%</p>
-            <p className="text-sm text-gray-500 mt-1">Win Rate รวม</p>
+            <p className="text-2xl md:text-3xl font-bold text-gray-900">{overall.winRate.toFixed(1)}%</p>
+            <p className="text-xs md:text-sm text-gray-500 mt-1">Win Rate รวม</p>
           </div>
           <div className="text-center">
-            <p className="text-3xl font-bold text-gray-900">{overall.totalSequences}</p>
-            <p className="text-sm text-gray-500 mt-1">จำนวนไม้ทั้งหมด</p>
+            <p className="text-2xl md:text-3xl font-bold text-gray-900">{overall.totalSequences.toLocaleString()}</p>
+            <p className="text-xs md:text-sm text-gray-500 mt-1">จำนวนไม้ทั้งหมด</p>
           </div>
           <div className="text-center">
-            <p className="text-3xl font-bold text-gray-900">{overall.winningSequences}</p>
-            <p className="text-sm text-gray-500 mt-1">ชนะ</p>
+            <p className="text-2xl md:text-3xl font-bold text-gray-900">{overall.winningSequences.toLocaleString()}</p>
+            <p className="text-xs md:text-sm text-gray-500 mt-1">ชนะ</p>
           </div>
           <div className="text-center">
-            <p className="text-3xl font-bold text-gray-900">{overall.losingSequences}</p>
-            <p className="text-sm text-gray-500 mt-1">แพ้</p>
+            <p className="text-2xl md:text-3xl font-bold text-gray-900">{overall.losingSequences.toLocaleString()}</p>
+            <p className="text-xs md:text-sm text-gray-500 mt-1">แพ้</p>
           </div>
         </div>
 
@@ -123,7 +123,7 @@ export async function ForwardTestStats() {
             <p className="text-xs text-gray-400">{overall.losingSequences} sequences ที่ครบ 3 ไม้</p>
           </div>
         </div>
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {symbolStats.map((stat) => (
             <div key={stat.symbol} className="text-center py-3 bg-gray-50 rounded-lg">
               <p className="text-xs text-gray-500 mb-1">{formatSymbolName(stat.symbol)}</p>
