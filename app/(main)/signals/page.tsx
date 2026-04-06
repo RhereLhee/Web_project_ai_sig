@@ -2,6 +2,7 @@
 import { getUserWithSubscription, hasSignalAccess } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { SignalRoomContent } from "@/components/SignalRoomContent"
+import { SignalRoomWithProvider } from "@/components/SignalRoomWithProvider"
 import { SignalPackages } from "./SignalPackages"
 import { prisma } from "@/lib/prisma"
 import { isFreeTrial, getFreeTrialDays } from "@/lib/system-settings"
@@ -123,7 +124,7 @@ export default async function SignalsPage() {
   }
 
   // ============================================
-  // ถ้ามี Signal แล้ว → แสดง Signal Room
+  // ถ้ามี Signal แล้ว → แสดง Signal Room (ครอบ PipProvider ให้แน่ใจ)
   // ============================================
-  return <SignalRoomContent user={user as any} />
+  return <SignalRoomWithProvider user={user as any} />
 }

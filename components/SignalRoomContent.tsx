@@ -297,11 +297,11 @@ export function SignalRoomContent({ user }: SignalRoomContentProps) {
 
         <div className="flex items-center space-x-2 md:space-x-3">
           <span className={`px-2 py-1 rounded text-[10px] md:text-xs font-bold uppercase ${
-            dataMode === 'live_data' || dataMode === 'live'
+            connected
               ? 'bg-emerald-500 text-white'
               : 'bg-orange-500 text-white'
           }`}>
-            {dataMode === 'live_data' || dataMode === 'live' ? 'LIVE' : 'DEMO'}
+            {connected ? 'LIVE' : 'OFFLINE'}
           </span>
 
           <div className="flex items-center space-x-1.5">

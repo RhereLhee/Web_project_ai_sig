@@ -9,7 +9,11 @@
       "Bash(find /c/projectP4/techtrade -maxdepth 1 -name *.config.* -o -name middleware.ts)",
       "Bash(grep -v \"//\")",
       "Bash(npx tsc:*)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(ls -la /c/projectP4/techtrade/app/\\\\\\(main\\\\\\)/signals/)"
     ]
   }
 }
