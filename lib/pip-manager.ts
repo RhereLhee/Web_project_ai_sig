@@ -8,8 +8,8 @@ import { signalService, type SignalData, type SymbolConfig, type RealtimeData } 
 // CONFIGURATION
 // ============================================
 
-const SYMBOLS = ['AUDUSDm', 'EURUSDm', 'GBPUSDm', 'USDJPYm']
-const DISPLAY_NAMES = ['AUDUSD', 'EURUSD', 'GBPUSD', 'USDJPY']
+const SYMBOLS = ['AUDUSDm', 'EURUSDm', 'GBPUSDm', 'USDJPYm', 'EURGBPm', 'EURJPYm']
+const DISPLAY_NAMES = ['AUDUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'EURGBP', 'EURJPY']
 const BARS_TO_SHOW = 10
 
 // PiP Canvas size
@@ -34,9 +34,10 @@ const COLORS = {
 type PipStateListener = (active: boolean) => void
 
 // PiP Mode:
-// 'native' = Chrome Video PiP API (Desktop Chrome)
-// 'popup'  = Popup window fallback (มือถือ iOS/Android + browser อื่น)
-type PipMode = 'native' | 'popup'
+// 'hls'    = HLS video PiP (ลอยเหนือแอปจริง ทุก platform)
+// 'native' = Canvas captureStream PiP (Desktop Chrome fallback)
+// 'popup'  = Overlay fallback (ลอยในเว็บเท่านั้น)
+type PipMode = 'hls' | 'native' | 'popup'
 
 class PipManager {
   private static instance: PipManager | null = null
@@ -47,6 +48,9 @@ class PipManager {
   private stream: MediaStream | null = null
   private ctx: CanvasRenderingContext2D | null = null
 
+  // HLS Video element (separate from canvas video)
+  private hlsVideo: HTMLVideoElement | null = null
+
   // Popup window (fallback สำหรับมือถือ)
   private popupWindow: Window | null = null
   private popupCanvas: HTMLCanvasElement | null = null
@@ -55,7 +59,7 @@ class PipManager {
   // State
   private isActive = false
   private isSupported = false
-  private pipMode: PipMode = 'native'
+  private pipMode: PipMode = 'hls'
   private renderLoopId: number | null = null
   private lastRenderTime = 0
   private frameInterval = 1000 / PIP_FPS
@@ -90,30 +94,12 @@ class PipManager {
   // ============================================
 
   private init(): void {
-    // ลอง native PiP ทุก platform ก่อน (Chrome, Safari, Edge)
-    // iOS Safari 14+ รองรับ PiP สำหรับ video element
-    // Android Chrome รองรับ PiP ลอยเหนือแอปอื่น
-    // ถ้า native PiP ล้มเหลว → fallback เป็น overlay อัตโนมัติ
-    const hasNativePip = 'pictureInPictureEnabled' in document &&
-                         (document as any).pictureInPictureEnabled
-
-    // Safari บน iOS ใช้ webkit prefix
-    const hasWebkitPip = 'webkitSupportsPresentationMode' in HTMLVideoElement.prototype
-
-    if (hasNativePip || hasWebkitPip) {
-      this.pipMode = 'native'
-    } else {
-      this.pipMode = 'popup'
-    }
-
-    // รองรับทุก platform
+    // รองรับทุก platform — จะลอง HLS → Canvas PiP → Overlay ตอน start()
+    this.pipMode = 'hls'
     this.isSupported = true
 
     // Cleanup any existing PiP elements (from hot reload or previous instances)
-    const existingVideos = document.querySelectorAll('video[data-pip-manager]')
-    const existingCanvases = document.querySelectorAll('canvas[data-pip-manager]')
-    existingVideos.forEach(v => v.remove())
-    existingCanvases.forEach(c => c.remove())
+    document.querySelectorAll('[data-pip-manager]').forEach(el => el.remove())
 
     // Create hidden canvas
     this.canvas = document.createElement('canvas')
@@ -222,27 +208,177 @@ class PipManager {
   async start(): Promise<void> {
     if (this.isActive) return
 
-    if (this.pipMode === 'native') {
-      await this.startNativePip()
-    } else {
-      await this.startPopupPip()
+    // ลองตามลำดับ: HLS → Canvas PiP → Overlay
+    // HLS ลอยเหนือแอปจริงได้ทุก platform (iOS Safari รองรับ HLS natively)
+    const hlsSuccess = await this.startHlsPip()
+    if (hlsSuccess) return
+
+    // Canvas captureStream PiP (Desktop Chrome/Edge)
+    const nativeSuccess = await this.startCanvasPip()
+    if (nativeSuccess) return
+
+    // Overlay fallback (ลอยในเว็บเท่านั้น)
+    this.pipMode = 'popup'
+    await this.startPopupPip()
+  }
+
+  // ============================================
+  // HLS URL — ดึงจาก env หรือ derive จาก API URL
+  // ============================================
+
+  private getHlsBaseUrl(): string {
+    // จาก env var
+    const envUrl = typeof process !== 'undefined'
+      ? process.env?.NEXT_PUBLIC_HLS_STREAM_URL
+      : undefined
+    if (envUrl) return envUrl.replace(/\/signal\.m3u8$/, '')
+
+    // Derive จาก WS URL
+    const wsUrl = typeof process !== 'undefined'
+      ? (process.env?.NEXT_PUBLIC_WS_URL || 'wss://trading-api-83hs.onrender.com/ws/signal')
+      : 'wss://trading-api-83hs.onrender.com/ws/signal'
+    return wsUrl
+      .replace('wss://', 'https://')
+      .replace('ws://', 'http://')
+      .replace(/\/ws\/.*$/, '')
+  }
+
+  // ============================================
+  // MODE 1: HLS Video PiP (ลอยเหนือแอปจริง ทุก platform)
+  // iOS Safari รองรับ HLS natively → video PiP ลอยได้
+  // Android Chrome → video PiP ลอยได้
+  // Desktop → video PiP ลอยได้
+  // ============================================
+
+  private async startHlsPip(): Promise<boolean> {
+    const baseUrl = this.getHlsBaseUrl()
+    const statusUrl = `${baseUrl}/stream/status`
+    const hlsUrl = `${baseUrl}/stream/signal.m3u8`
+
+    try {
+      // เช็คว่า HLS stream พร้อมใช้งานหรือไม่
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 5000)
+      const statusRes = await fetch(statusUrl, { signal: controller.signal })
+      clearTimeout(timeout)
+
+      const status = await statusRes.json()
+      if (!status.running || !status.playlist_exists) {
+        console.log('HLS stream not ready:', status)
+        return false
+      }
+
+      // สร้าง video element สำหรับ HLS
+      this.hlsVideo = document.createElement('video')
+      this.hlsVideo.src = hlsUrl
+      this.hlsVideo.muted = true
+      this.hlsVideo.playsInline = true
+      this.hlsVideo.autoplay = true
+      this.hlsVideo.controls = false
+      this.hlsVideo.disablePictureInPicture = false
+      this.hlsVideo.setAttribute('playsinline', '')
+      this.hlsVideo.setAttribute('webkit-playsinline', '')
+      this.hlsVideo.setAttribute('autopictureinpicture', '')
+      this.hlsVideo.setAttribute('data-pip-manager', 'hls')
+      // ซ่อนแต่ยังมีขนาด (iOS ต้องการ)
+      this.hlsVideo.style.cssText = 'position:fixed;bottom:0;right:0;width:2px;height:2px;opacity:0.01;pointer-events:none;z-index:-1;'
+      document.body.appendChild(this.hlsVideo)
+
+      // รอ video โหลดข้อมูลก่อน play
+      await new Promise<void>((resolve, reject) => {
+        const onCanPlay = () => {
+          this.hlsVideo?.removeEventListener('canplay', onCanPlay)
+          this.hlsVideo?.removeEventListener('error', onError)
+          resolve()
+        }
+        const onError = () => {
+          this.hlsVideo?.removeEventListener('canplay', onCanPlay)
+          this.hlsVideo?.removeEventListener('error', onError)
+          reject(new Error('HLS video load error'))
+        }
+        this.hlsVideo!.addEventListener('canplay', onCanPlay)
+        this.hlsVideo!.addEventListener('error', onError)
+
+        // Timeout 8 วินาที
+        setTimeout(() => {
+          this.hlsVideo?.removeEventListener('canplay', onCanPlay)
+          this.hlsVideo?.removeEventListener('error', onError)
+          reject(new Error('HLS video load timeout'))
+        }, 8000)
+      })
+
+      await this.hlsVideo.play()
+
+      // ลอง PiP กับ HLS video
+      if ('requestPictureInPicture' in this.hlsVideo) {
+        await (this.hlsVideo as any).requestPictureInPicture()
+      } else if ((this.hlsVideo as any).webkitSupportsPresentationMode) {
+        (this.hlsVideo as any).webkitSetPresentationMode('picture-in-picture')
+      } else {
+        throw new Error('PiP API not available')
+      }
+
+      // สำเร็จ!
+      this.pipMode = 'hls'
+      this.isActive = true
+      this.notifyStateListeners(true)
+
+      // Listen for PiP exit
+      this.hlsVideo.addEventListener('leavepictureinpicture', () => {
+        this.isActive = false
+        this.cleanupHlsVideo()
+        this.notifyStateListeners(false)
+      })
+
+      this.hlsVideo.addEventListener('webkitpresentationmodechanged', () => {
+        const mode = (this.hlsVideo as any)?.webkitPresentationMode
+        if (mode === 'inline') {
+          this.isActive = false
+          this.cleanupHlsVideo()
+          this.notifyStateListeners(false)
+        }
+      })
+
+      console.log('✅ HLS PiP activated — ลอยเหนือแอปอื่นได้')
+      return true
+
+    } catch (error) {
+      console.log('HLS PiP failed, trying canvas fallback:', error)
+      this.cleanupHlsVideo()
+      return false
+    }
+  }
+
+  private cleanupHlsVideo(): void {
+    if (this.hlsVideo) {
+      this.hlsVideo.pause()
+      this.hlsVideo.removeAttribute('src')
+      this.hlsVideo.load()
+      if (this.hlsVideo.parentNode) {
+        this.hlsVideo.parentNode.removeChild(this.hlsVideo)
+      }
+      this.hlsVideo = null
     }
   }
 
   // ============================================
-  // MODE 1: Native PiP (Chrome + Safari ทุก platform)
-  // Android/Desktop → ลอยเหนือแอปอื่นได้
-  // iOS Safari → ลอยเหนือแอปอื่นได้ (ถ้า video element ทำงาน)
+  // MODE 2: Canvas captureStream PiP (Desktop Chrome/Edge)
   // ============================================
 
-  private async startNativePip(): Promise<void> {
-    if (!this.video || !this.canvas) return
+  private async startCanvasPip(): Promise<boolean> {
+    if (!this.video || !this.canvas) return false
+
+    // เช็คว่า browser รองรับ PiP API
+    const hasNativePip = 'pictureInPictureEnabled' in document &&
+                         (document as any).pictureInPictureEnabled
+    const hasWebkitPip = 'webkitSupportsPresentationMode' in HTMLVideoElement.prototype
+    if (!hasNativePip && !hasWebkitPip) return false
 
     try {
       this.drawPipCanvas()
       this.stream = (this.canvas as any).captureStream(PIP_FPS)
 
-      // Silent audio track — ช่วยให้ PiP ทำงานได้ดีขึ้นบน iOS/Android
+      // Silent audio track — ช่วยให้ PiP ทำงานได้ดีขึ้น
       try {
         const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)()
         const oscillator = audioCtx.createOscillator()
@@ -264,22 +400,22 @@ class PipManager {
       this.video.srcObject = this.stream
       await this.video.play()
 
-      // ลอง standard PiP API ก่อน
+      // ลอง standard PiP API
       if ('requestPictureInPicture' in this.video) {
         await (this.video as any).requestPictureInPicture()
-      }
-      // Safari iOS fallback — webkit presentation mode
-      else if ((this.video as any).webkitSupportsPresentationMode) {
+      } else if ((this.video as any).webkitSupportsPresentationMode) {
         (this.video as any).webkitSetPresentationMode('picture-in-picture')
       }
 
+      this.pipMode = 'native'
       this.startRenderLoop()
+      console.log('✅ Canvas PiP activated')
+      return true
 
     } catch (error) {
-      console.error('Native PiP failed, trying overlay fallback:', error)
-      // Fallback to overlay
-      this.pipMode = 'popup'
-      await this.startPopupPip()
+      console.log('Canvas PiP failed:', error)
+      this.cleanupStream()
+      return false
     }
   }
 
@@ -414,6 +550,9 @@ class PipManager {
         (this.video as any).webkitSetPresentationMode('inline')
       }
 
+      // ปิด HLS video
+      this.cleanupHlsVideo()
+
       // ปิด popup window
       if (this.popupWindow && !this.popupWindow.closed) {
         this.popupWindow.close()
@@ -517,14 +656,14 @@ class PipManager {
     // Draw header
     this.drawHeader(ctx, width)
 
-    // Draw 4 charts in 2x2 grid
-    const chartWidth = width / 2
+    // Draw 6 charts in 3x2 grid
+    const chartWidth = width / 3
     const chartHeight = (height - 40) / 2
     const headerHeight = 40
 
     SYMBOLS.forEach((symbol, index) => {
-      const col = index % 2
-      const row = Math.floor(index / 2)
+      const col = index % 3
+      const row = Math.floor(index / 3)
       const x = col * chartWidth
       const y = headerHeight + row * chartHeight
 
@@ -846,6 +985,8 @@ class PipManager {
     if (this.video && this.video.parentNode) {
       this.video.parentNode.removeChild(this.video)
     }
+
+    this.cleanupHlsVideo()
 
     if (this.popupWindow && !this.popupWindow.closed) {
       this.popupWindow.close()

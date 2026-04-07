@@ -3,7 +3,7 @@
 
 import { prisma } from './prisma'
 
-const SYMBOLS = ['AUDUSDm', 'EURUSDm', 'GBPUSDm', 'USDJPYm']
+const SYMBOLS = ['AUDUSDm', 'EURUSDm', 'GBPUSDm', 'USDJPYm', 'EURGBPm', 'EURJPYm']
 
 // ดึง Forward Test Stats จาก Supabase
 export async function getForwardStats() {

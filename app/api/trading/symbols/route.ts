@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma'
 import { getUserWithSubscription } from '@/lib/auth'
 
 // Default symbols
-const DEFAULT_SYMBOLS = ['AUDUSDm', 'EURUSDm', 'GBPUSDm', 'USDJPYm']
+const DEFAULT_SYMBOLS = ['AUDUSDm', 'EURUSDm', 'GBPUSDm', 'USDJPYm', 'EURGBPm', 'EURJPYm']
 
 // GET - ดึงสถานะทุก Symbol
 export async function GET() {

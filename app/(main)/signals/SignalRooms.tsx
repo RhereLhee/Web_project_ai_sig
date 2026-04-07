@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 
 const API_URL = 'https://trading-api-83hs.onrender.com'
-const SYMBOLS = ['AUDUSDm', 'EURUSDm', 'GBPUSDm', 'USDJPYm']
-const DISPLAY_NAMES = ['AUDUSD', 'EURUSD', 'GBPUSD', 'USDJPY']
+const SYMBOLS = ['AUDUSDm', 'EURUSDm', 'GBPUSDm', 'USDJPYm', 'EURGBPm', 'EURJPYm']
+const DISPLAY_NAMES = ['AUDUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'EURGBP', 'EURJPY']
 const BARS_TO_SHOW = 20
 
 // PiP Canvas - ขนาดใหญ่
@@ -46,8 +46,8 @@ interface SignalRoomContentProps {
 }
 
 export function SignalRoomContent({ user }: SignalRoomContentProps) {
-  const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([null, null, null, null])
-  const containerRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null])
+  const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([null, null, null, null, null, null])
+  const containerRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null, null])
   
   // PiP refs
   const pipCanvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -107,15 +107,15 @@ export function SignalRoomContent({ user }: SignalRoomContentProps) {
     ctx.fillStyle = COLORS.background
     ctx.fillRect(0, 0, PIP_WIDTH, PIP_HEIGHT)
 
-    const cellWidth = PIP_WIDTH / 2
+    const cellWidth = PIP_WIDTH / 3
     const cellHeight = PIP_HEIGHT / 2
 
     SYMBOLS.forEach((symbol, i) => {
       const data = symbolData[symbol]
       if (!data || !data.candles || data.candles.length === 0) return
 
-      const col = i % 2
-      const row = Math.floor(i / 2)
+      const col = i % 3
+      const row = Math.floor(i / 3)
       const offsetX = col * cellWidth
       const offsetY = row * cellHeight
 
@@ -502,8 +502,8 @@ export function SignalRoomContent({ user }: SignalRoomContentProps) {
         </div>
       </div>
 
-      {/* 4 Signal Rooms - Grid 2x2 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+      {/* 6 Signal Rooms - Grid 3x2 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
         {SYMBOLS.map((symbol, i) => (
           <div key={symbol} className="signal-room relative bg-[#0a0a0a] rounded-xl overflow-hidden" style={{ aspectRatio: '16/10' }}>
             {/* Header overlay */}

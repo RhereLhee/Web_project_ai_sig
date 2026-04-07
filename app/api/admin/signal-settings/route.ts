@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth'
 
-const SIGNAL_PAIRS = ['AUDUSD', 'EURUSD', 'GBPUSD', 'USDJPY']
+const SIGNAL_PAIRS = ['AUDUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'EURGBP', 'EURJPY']
 
 export async function POST(request: NextRequest) {
   try {

@@ -8,8 +8,8 @@ import { usePip } from "@/components/PipProvider"
 // CONFIGURATION
 // ============================================
 
-const SYMBOLS = ['AUDUSDm', 'EURUSDm', 'GBPUSDm', 'USDJPYm']
-const DISPLAY_NAMES = ['AUDUSD', 'EURUSD', 'GBPUSD', 'USDJPY']
+const SYMBOLS = ['AUDUSDm', 'EURUSDm', 'GBPUSDm', 'USDJPYm', 'EURGBPm', 'EURJPYm']
+const DISPLAY_NAMES = ['AUDUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'EURGBP', 'EURJPY']
 const BARS_TO_SHOW = 10
 
 const COLORS = {
@@ -34,8 +34,8 @@ interface SignalRoomContentProps {
 }
 
 export function SignalRoomContent({ user }: SignalRoomContentProps) {
-  const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([null, null, null, null])
-  const containerRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null])
+  const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([null, null, null, null, null, null])
+  const containerRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null, null])
 
   // Use global PiP context
   const {
@@ -331,8 +331,8 @@ export function SignalRoomContent({ user }: SignalRoomContentProps) {
         </div>
       </div>
 
-      {/* 4 Signal Charts - Grid 2x2 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-[1px] bg-[#1a1a1a] p-[1px] rounded-xl overflow-hidden">
+      {/* 6 Signal Charts - Grid 3x2 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-[1px] bg-[#1a1a1a] p-[1px] rounded-xl overflow-hidden">
         {SYMBOLS.map((symbol, i) => {
           const isEnabled = isSymbolEnabled(symbol)
 

@@ -174,6 +174,8 @@ function getSymbolCode(symbol: string): string {
     'EURUSDm': 'EUUS',
     'GBPUSDm': 'GBUS',
     'USDJPYm': 'USJP',
+    'EURGBPm': 'EUGB',
+    'EURJPYm': 'EUJP',
   }
   return codes[symbol] || symbol.slice(0, 4)
 }

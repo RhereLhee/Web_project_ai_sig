@@ -6,7 +6,7 @@ import { getUserWithSubscription } from '@/lib/auth'
 
 const PYTHON_API_URL = process.env.PYTHON_API_URL || 'https://trading-api-83hs.onrender.com'
 
-const VALID_SYMBOLS = ['AUDUSDm', 'EURUSDm', 'GBPUSDm', 'USDJPYm']
+const VALID_SYMBOLS = ['AUDUSDm', 'EURUSDm', 'GBPUSDm', 'USDJPYm', 'EURGBPm', 'EURJPYm']
 
 export async function POST(req: NextRequest) {
   try {

@@ -112,6 +112,8 @@ export function SignalControlCard({ data }: SignalControlCardProps) {
       'EURUSDm': 'EUUS',
       'GBPUSDm': 'GBUS',
       'USDJPYm': 'USJP',
+      'EURGBPm': 'EUGB',
+      'EURJPYm': 'EUJP',
     }
     return codes[symbol] || symbol.slice(0, 4)
   }
