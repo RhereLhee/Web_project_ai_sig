@@ -38,6 +38,7 @@ type RealtimeData = {
   symbols: Record<string, SignalData>
   type?: string
   connections?: number
+  hls_url?: string
 }
 
 type Listener = (data: RealtimeData) => void

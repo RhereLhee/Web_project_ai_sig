@@ -68,6 +68,7 @@ class PipManager {
   private symbolData: Record<string, SignalData> = {}
   private symbolConfigs: Record<string, SymbolConfig> = {}
   private globalCountdown = 0
+  private hlsUrl: string | null = null
 
   // Listeners
   private stateListeners: Set<PipStateListener> = new Set()
@@ -180,6 +181,9 @@ class PipManager {
       if (data.countdown !== undefined) {
         this.globalCountdown = data.countdown
       }
+      if (data.hls_url) {
+        this.hlsUrl = data.hls_url
+      }
     })
 
     // Subscribe to symbol config updates
@@ -223,37 +227,23 @@ class PipManager {
   }
 
   // ============================================
-  // HLS URL — ดึงจาก env หรือ derive จาก API URL
-  // ============================================
-
-  private getHlsBaseUrl(): string {
-    // จาก env var
-    const envUrl = typeof process !== 'undefined'
-      ? process.env?.NEXT_PUBLIC_HLS_STREAM_URL
-      : undefined
-    if (envUrl) return envUrl.replace(/\/signal\.m3u8$/, '')
-
-    // Derive จาก WS URL
-    const wsUrl = typeof process !== 'undefined'
-      ? (process.env?.NEXT_PUBLIC_WS_URL || 'wss://trading-api-83hs.onrender.com/ws/signal')
-      : 'wss://trading-api-83hs.onrender.com/ws/signal'
-    return wsUrl
-      .replace('wss://', 'https://')
-      .replace('ws://', 'http://')
-      .replace(/\/ws\/.*$/, '')
-  }
-
-  // ============================================
   // MODE 1: HLS Video PiP (ลอยเหนือแอปจริง ทุก platform)
+  // HLS URL มาจาก WebSocket data (VPS ส่งมา) ไม่ต้อง hardcode
   // iOS Safari รองรับ HLS natively → video PiP ลอยได้
   // Android Chrome → video PiP ลอยได้
   // Desktop → video PiP ลอยได้
   // ============================================
 
   private async startHlsPip(): Promise<boolean> {
-    const baseUrl = this.getHlsBaseUrl()
+    // ดึง HLS URL จาก WebSocket data (VPS ส่งมาผ่าน broadcast)
+    const hlsUrl = this.hlsUrl
+    if (!hlsUrl) {
+      console.log('HLS URL not available from server (HLS_PUBLIC_URL not set on VPS)')
+      return false
+    }
+
+    const baseUrl = hlsUrl.replace(/\/stream\/signal\.m3u8$/, '')
     const statusUrl = `${baseUrl}/stream/status`
-    const hlsUrl = `${baseUrl}/stream/signal.m3u8`
 
     try {
       // เช็คว่า HLS stream พร้อมใช้งานหรือไม่
