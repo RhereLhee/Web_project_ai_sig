@@ -51,7 +51,7 @@ class SignalService {
   private ws: WebSocket | null = null
   private wsUrl: string = ''
   private reconnectAttempts = 0
-  private maxReconnectAttempts = 10
+  private maxReconnectAttempts = 50
   private reconnectDelay = 1000
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   
@@ -192,7 +192,7 @@ class SignalService {
       return
     }
 
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts)
+    const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts), 30000)
     this.reconnectAttempts++
     
     console.log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`)
