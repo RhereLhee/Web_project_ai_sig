@@ -284,6 +284,16 @@ export function SignalRoomContent({ user }: SignalRoomContentProps) {
     return () => window.removeEventListener('resize', draw)
   }, [symbolData, symbolConfigs, drawChart, isSymbolEnabled])
 
+  // Lock back button — ป้องกันกดย้อนออกจากหน้า signal
+  useEffect(() => {
+    history.pushState(null, '', location.href)
+    const onPopState = () => {
+      history.pushState(null, '', location.href)
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
   const formatTime = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 
   return (
