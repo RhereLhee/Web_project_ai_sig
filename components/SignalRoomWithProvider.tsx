@@ -1,7 +1,7 @@
 // components/SignalRoomWithProvider.tsx
+// PipProvider อยู่ใน layout.tsx แล้ว ไม่ต้องครอบซ้ำ
 "use client"
 
-import { PipProvider } from "@/components/PipProvider"
 import { SignalRoomContent } from "@/components/SignalRoomContent"
 
 interface User {
@@ -11,9 +11,5 @@ interface User {
 }
 
 export function SignalRoomWithProvider({ user }: { user: User }) {
-  return (
-    <PipProvider>
-      <SignalRoomContent user={user} />
-    </PipProvider>
-  )
+  return <SignalRoomContent user={user} />
 }

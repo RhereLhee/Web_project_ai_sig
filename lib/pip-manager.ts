@@ -405,6 +405,7 @@ class PipManager {
       // สร้าง overlay container
       this.overlayContainer = document.createElement('div')
       this.overlayContainer.id = 'pip-overlay'
+      this.overlayContainer.setAttribute('data-pip-manager', 'overlay')
       this.overlayContainer.style.cssText = `
         position: fixed;
         bottom: 80px;
