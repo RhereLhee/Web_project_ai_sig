@@ -255,23 +255,17 @@ class PipManager {
     this.hlsVideo.src = hlsUrl
     this.hlsVideo.muted = true
     this.hlsVideo.playsInline = true
-    this.hlsVideo.autoplay = true // iOS ต้อง autoplay muted เพื่อ warm up video element
+    this.hlsVideo.autoplay = false // ไม่ autoplay — รอจนกว่า user กด PiP
     this.hlsVideo.controls = false
     this.hlsVideo.preload = 'auto'
     this.hlsVideo.disablePictureInPicture = false
-    // ไม่ set crossOrigin — Cloudflare tunnel อาจไม่ส่ง CORS header
-    // ถ้า set แล้ว browser จะ block load เลย
+    this.hlsVideo.disableRemotePlayback = true
     this.hlsVideo.setAttribute('playsinline', '')
     this.hlsVideo.setAttribute('webkit-playsinline', '')
-    this.hlsVideo.setAttribute('autopictureinpicture', '')
     this.hlsVideo.setAttribute('data-pip-manager', 'hls')
-    this.hlsVideo.disableRemotePlayback = true // ซ่อนปุ่ม AirPlay/Cast
-    // iOS ต้อง "เห็น" video จึงจะอนุญาต PiP — ซ่อนแต่มีขนาดจริง
-    this.hlsVideo.style.cssText = 'position:fixed;bottom:0;left:0;width:10px;height:10px;opacity:0.01;pointer-events:none;z-index:-1;'
+    // ซ่อนจริงๆ — ไม่ให้ iOS เปิด native player ขึ้นมา
+    this.hlsVideo.style.cssText = 'position:fixed;bottom:-100px;left:-100px;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-9999;'
     document.body.appendChild(this.hlsVideo)
-
-    // ซ่อนปุ่มควบคุมใน PiP window — ลบ action handlers ทั้งหมด
-    this.setupViewOnlyMediaSession()
 
     // Listen for PiP exit events
     this.hlsVideo.addEventListener('leavepictureinpicture', () => {
@@ -322,33 +316,37 @@ class PipManager {
     if (!('mediaSession' in navigator)) return
 
     try {
-      // ตั้งชื่อให้แสดงใน PiP
       navigator.mediaSession.metadata = new MediaMetadata({
         title: 'TechTrade Signal',
         artist: 'Live Trading',
       })
 
-      // ลบปุ่มทั้งหมด — set handler เป็น null
+      // iOS: ต้อง set handler เป็น function เปล่า (ไม่ใช่ null)
+      // null = ใช้ default → ปุ่มยังแสดง
+      // () => {} = override เป็นไม่ทำอะไร → ปุ่มหาย
+      const noop = () => {}
       const actions: MediaSessionAction[] = [
-        'play', 'pause', 'seekbackward', 'seekforward',
+        'seekbackward', 'seekforward',
         'previoustrack', 'nexttrack', 'skipad',
       ]
       for (const action of actions) {
         try {
-          navigator.mediaSession.setActionHandler(action, null)
+          navigator.mediaSession.setActionHandler(action, noop)
         } catch {
           // บาง action อาจไม่รองรับ
         }
       }
 
-      // play/pause — ไม่ให้หยุดได้ (เล่นต่อเสมอ)
+      // play/pause — กด pause แล้วเล่นต่อทันที
       try {
         navigator.mediaSession.setActionHandler('play', () => {
           this.hlsVideo?.play().catch(() => {})
         })
         navigator.mediaSession.setActionHandler('pause', () => {
-          // ไม่ pause — เล่นต่อทันที
-          this.hlsVideo?.play().catch(() => {})
+          // ไม่ pause จริง — resume ทันที
+          setTimeout(() => {
+            this.hlsVideo?.play().catch(() => {})
+          }, 100)
         })
       } catch {}
 
@@ -418,6 +416,8 @@ class PipManager {
       this.pipMode = 'hls'
       this.isActive = true
       this.notifyStateListeners(true)
+      // ซ่อนปุ่มควบคุมหลังเข้า PiP สำเร็จ
+      this.setupViewOnlyMediaSession()
       console.log('[PiP] ✅ HLS PiP activated — ลอยเหนือแอปอื่นได้')
       return true
 
