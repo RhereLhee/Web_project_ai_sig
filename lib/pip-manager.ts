@@ -51,8 +51,7 @@ class PipManager {
   // HLS Video element (separate from canvas video)
   private hlsVideo: HTMLVideoElement | null = null
 
-  // Popup window (fallback สำหรับมือถือ)
-  private popupWindow: Window | null = null
+  // Popup overlay (fallback สำหรับมือถือ)
   private popupCanvas: HTMLCanvasElement | null = null
   private popupCtx: CanvasRenderingContext2D | null = null
 
@@ -214,16 +213,19 @@ class PipManager {
   async start(): Promise<void> {
     if (this.isActive) return
 
+    console.log('[PiP] Starting fallback chain: HLS → Canvas → Overlay')
+
     // ลองตามลำดับ: HLS → Canvas PiP → Overlay
-    // HLS ลอยเหนือแอปจริงได้ทุก platform (iOS Safari รองรับ HLS natively)
     const hlsSuccess = await this.startHlsPip()
     if (hlsSuccess) return
 
     // Canvas captureStream PiP (Desktop Chrome/Edge)
+    console.log('[PiP] Trying Canvas PiP...')
     const nativeSuccess = await this.startCanvasPip()
     if (nativeSuccess) return
 
     // Overlay fallback (ลอยในเว็บเท่านั้น)
+    console.log('[PiP] Falling back to Overlay (in-web only)')
     this.pipMode = 'popup'
     await this.startPopupPip()
   }
@@ -246,22 +248,24 @@ class PipManager {
     const hlsUrl = this.hlsUrl
     if (!hlsUrl) return
 
-    console.log('🔄 Pre-loading HLS video:', hlsUrl)
+    console.log('[PiP] Pre-loading HLS video:', hlsUrl)
 
     this.hlsVideo = document.createElement('video')
     this.hlsVideo.src = hlsUrl
     this.hlsVideo.muted = true
     this.hlsVideo.playsInline = true
-    this.hlsVideo.autoplay = false // ไม่ auto play ตอน preload
+    this.hlsVideo.autoplay = true // iOS ต้อง autoplay muted เพื่อ warm up video element
     this.hlsVideo.controls = false
     this.hlsVideo.preload = 'auto'
     this.hlsVideo.disablePictureInPicture = false
+    this.hlsVideo.crossOrigin = 'anonymous' // CORS สำหรับ cross-origin HLS
     this.hlsVideo.setAttribute('playsinline', '')
     this.hlsVideo.setAttribute('webkit-playsinline', '')
     this.hlsVideo.setAttribute('autopictureinpicture', '')
     this.hlsVideo.setAttribute('data-pip-manager', 'hls')
     // iOS ต้อง "เห็น" video จึงจะอนุญาต PiP — ซ่อนแต่มีขนาดจริง
-    this.hlsVideo.style.cssText = 'position:fixed;bottom:0;left:0;width:4px;height:3px;opacity:0.01;pointer-events:none;z-index:-1;'
+    // ขนาดใหญ่ขึ้นเล็กน้อยเพื่อให้ iOS ยอมรับว่า "visible"
+    this.hlsVideo.style.cssText = 'position:fixed;bottom:0;left:0;width:10px;height:10px;opacity:0.01;pointer-events:none;z-index:-1;'
     document.body.appendChild(this.hlsVideo)
 
     // Listen for PiP exit events
@@ -279,11 +283,28 @@ class PipManager {
 
     this.hlsVideo.addEventListener('canplay', () => {
       this.hlsReady = true
-      console.log('✅ HLS video pre-loaded and ready for PiP')
+      console.log('[PiP] ✅ HLS video pre-loaded and ready for PiP', {
+        readyState: this.hlsVideo?.readyState,
+        duration: this.hlsVideo?.duration,
+        videoWidth: this.hlsVideo?.videoWidth,
+      })
+    }, { once: true })
+
+    this.hlsVideo.addEventListener('loadedmetadata', () => {
+      console.log('[PiP] HLS metadata loaded', {
+        duration: this.hlsVideo?.duration,
+        videoWidth: this.hlsVideo?.videoWidth,
+        videoHeight: this.hlsVideo?.videoHeight,
+      })
     }, { once: true })
 
     this.hlsVideo.addEventListener('error', () => {
-      console.log('❌ HLS video preload failed')
+      const err = this.hlsVideo?.error
+      console.log('[PiP] ❌ HLS video preload failed:', {
+        code: err?.code,
+        message: err?.message,
+        networkState: this.hlsVideo?.networkState,
+      })
       this.hlsReady = false
     }, { once: true })
 
@@ -292,33 +313,70 @@ class PipManager {
   }
 
   private async startHlsPip(): Promise<boolean> {
-    // ถ้ายังไม่มี HLS URL หรือ video ไม่พร้อม
+    // Diagnostic logging
+    console.log('[PiP] startHlsPip check:', {
+      hlsUrl: this.hlsUrl,
+      hlsVideo: !!this.hlsVideo,
+      hlsReady: this.hlsReady,
+      readyState: this.hlsVideo?.readyState,
+      networkState: this.hlsVideo?.networkState,
+    })
+
     if (!this.hlsUrl || !this.hlsVideo) {
-      console.log('HLS not available (no URL or video element)')
+      console.log('[PiP] HLS skip: no URL or video element')
       return false
+    }
+
+    // ถ้า video ยัง load ไม่เสร็จ → ลอง reload + รอสั้นๆ
+    if (!this.hlsReady && this.hlsVideo.readyState < 2) {
+      console.log('[PiP] HLS video not ready, attempting reload...')
+      this.hlsVideo.src = this.hlsUrl
+      this.hlsVideo.load()
+      // รอ canplay สั้นๆ (max 3 วินาที) — ต้องเร็วไม่งั้น gesture token หมด
+      const ready = await new Promise<boolean>((resolve) => {
+        const timeout = setTimeout(() => resolve(false), 3000)
+        this.hlsVideo!.addEventListener('canplay', () => {
+          clearTimeout(timeout)
+          resolve(true)
+        }, { once: true })
+        this.hlsVideo!.addEventListener('error', () => {
+          clearTimeout(timeout)
+          resolve(false)
+        }, { once: true })
+      })
+      if (!ready) {
+        console.log('[PiP] HLS skip: video failed to load within 3s')
+        return false
+      }
     }
 
     try {
       // ⚡ ต้องเร็วที่สุด — iOS gesture token มีอายุสั้นมาก
       // play() + requestPiP ต้องเกิดทันทีหลัง user tap
       await this.hlsVideo.play()
+      console.log('[PiP] HLS play() success')
 
-      if ('requestPictureInPicture' in this.hlsVideo) {
+      // iOS Safari: ลอง webkit ก่อน (รองรับ HLS natively)
+      if ((this.hlsVideo as any).webkitSupportsPresentationMode) {
+        console.log('[PiP] Using webkit PiP (Safari)')
+        ;(this.hlsVideo as any).webkitSetPresentationMode('picture-in-picture')
+      } else if ('requestPictureInPicture' in this.hlsVideo) {
+        console.log('[PiP] Using standard PiP API')
         await (this.hlsVideo as any).requestPictureInPicture()
-      } else if ((this.hlsVideo as any).webkitSupportsPresentationMode) {
-        (this.hlsVideo as any).webkitSetPresentationMode('picture-in-picture')
       } else {
-        throw new Error('PiP API not available')
+        throw new Error('PiP API not available on this browser')
       }
 
       this.pipMode = 'hls'
       this.isActive = true
       this.notifyStateListeners(true)
-      console.log('✅ HLS PiP activated — ลอยเหนือแอปอื่นได้')
+      console.log('[PiP] ✅ HLS PiP activated — ลอยเหนือแอปอื่นได้')
       return true
 
     } catch (error) {
-      console.log('HLS PiP failed, trying canvas fallback:', error)
+      console.log('[PiP] HLS PiP failed:', error)
+      // Cleanup failed play
+      try { this.hlsVideo.pause() } catch {}
       return false
     }
   }
@@ -402,6 +460,10 @@ class PipManager {
 
   private async startPopupPip(): Promise<void> {
     try {
+      // ลบ overlay เก่าถ้ามี (ป้องกันซ้อน 2 อัน)
+      const existing = document.getElementById('pip-overlay')
+      if (existing) existing.remove()
+
       // สร้าง overlay container
       this.overlayContainer = document.createElement('div')
       this.overlayContainer.id = 'pip-overlay'
@@ -527,12 +589,6 @@ class PipManager {
 
       // ปิด HLS video
       this.cleanupHlsVideo()
-
-      // ปิด popup window
-      if (this.popupWindow && !this.popupWindow.closed) {
-        this.popupWindow.close()
-      }
-      this.popupWindow = null
 
       // ปิด overlay
       if (this.overlayContainer && this.overlayContainer.parentNode) {
@@ -963,10 +1019,6 @@ class PipManager {
 
     this.cleanupHlsVideo()
 
-    if (this.popupWindow && !this.popupWindow.closed) {
-      this.popupWindow.close()
-    }
-
     if (this.overlayContainer && this.overlayContainer.parentNode) {
       this.overlayContainer.parentNode.removeChild(this.overlayContainer)
     }
@@ -974,7 +1026,6 @@ class PipManager {
     this.canvas = null
     this.video = null
     this.ctx = null
-    this.popupWindow = null
     this.overlayContainer = null
     this.popupCanvas = null
     this.popupCtx = null

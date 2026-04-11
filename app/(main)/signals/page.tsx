@@ -1,7 +1,6 @@
 // app/(main)/signals/page.tsx
 import { getUserWithSubscription, hasSignalAccess } from "@/lib/auth"
 import { redirect } from "next/navigation"
-import { SignalRoomContent } from "@/components/SignalRoomContent"
 import { SignalRoomWithProvider } from "@/components/SignalRoomWithProvider"
 import { SignalPackages } from "./SignalPackages"
 import { prisma } from "@/lib/prisma"
