@@ -69,6 +69,7 @@ class PipManager {
   private globalCountdown = 0
   private hlsUrl: string | null = null
   private hlsReady = false // HLS video pre-loaded and ready for instant PiP
+  private lastError: string | null = null // เก็บ error ล่าสุดสำหรับ debug
 
   // Listeners
   private stateListeners: Set<PipStateListener> = new Set()
@@ -258,7 +259,8 @@ class PipManager {
     this.hlsVideo.controls = false
     this.hlsVideo.preload = 'auto'
     this.hlsVideo.disablePictureInPicture = false
-    this.hlsVideo.crossOrigin = 'anonymous' // CORS สำหรับ cross-origin HLS
+    // ไม่ set crossOrigin — Cloudflare tunnel อาจไม่ส่ง CORS header
+    // ถ้า set แล้ว browser จะ block load เลย
     this.hlsVideo.setAttribute('playsinline', '')
     this.hlsVideo.setAttribute('webkit-playsinline', '')
     this.hlsVideo.setAttribute('autopictureinpicture', '')
@@ -323,7 +325,8 @@ class PipManager {
     })
 
     if (!this.hlsUrl || !this.hlsVideo) {
-      console.log('[PiP] HLS skip: no URL or video element')
+      this.lastError = !this.hlsUrl ? 'No HLS URL from WebSocket (VPS ยังไม่ set HLS_PUBLIC_URL)' : 'No HLS video element'
+      console.log('[PiP] HLS skip:', this.lastError)
       return false
     }
 
@@ -345,7 +348,8 @@ class PipManager {
         }, { once: true })
       })
       if (!ready) {
-        console.log('[PiP] HLS skip: video failed to load within 3s')
+        this.lastError = 'HLS video ไม่สามารถ load ได้ภายใน 3s (CORS หรือ URL ผิด)'
+        console.log('[PiP] HLS skip:', this.lastError)
         return false
       }
     }
@@ -373,7 +377,8 @@ class PipManager {
       console.log('[PiP] ✅ HLS PiP activated — ลอยเหนือแอปอื่นได้')
       return true
 
-    } catch (error) {
+    } catch (error: any) {
+      this.lastError = `HLS PiP error: ${error?.message || error}`
       console.log('[PiP] HLS PiP failed:', error)
       // Cleanup failed play
       try { this.hlsVideo.pause() } catch {}
@@ -990,6 +995,16 @@ class PipManager {
 
   getIsSupported(): boolean {
     return this.isSupported
+  }
+
+  getDebugInfo(): { hlsUrl: string | null; hlsReady: boolean; pipMode: PipMode; lastError: string | null; hlsVideoState: number | null } {
+    return {
+      hlsUrl: this.hlsUrl,
+      hlsReady: this.hlsReady,
+      pipMode: this.pipMode,
+      lastError: this.lastError,
+      hlsVideoState: this.hlsVideo?.readyState ?? null,
+    }
   }
 
   // ============================================

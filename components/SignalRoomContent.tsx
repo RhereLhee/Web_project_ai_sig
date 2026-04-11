@@ -1,8 +1,9 @@
 // components/SignalRoomContent.tsx
 "use client"
 
-import { useEffect, useRef, useCallback } from "react"
+import { useEffect, useRef, useCallback, useState } from "react"
 import { usePip } from "@/components/PipProvider"
+import { pipManager } from "@/lib/pip-manager"
 
 // ============================================
 // CONFIGURATION
@@ -417,6 +418,86 @@ export function SignalRoomContent({ user }: SignalRoomContentProps) {
           💡 กดปุ่ม <span className="text-emerald-500 font-medium">PiP</span> เพื่อให้กราฟลอยทับแอปเทรด (รองรับทุกอุปกรณ์)
           {isPipActive && <span className="text-emerald-400 ml-1">(กำลังใช้งาน - ทำงานต่อแม้เปลี่ยนหน้า)</span>}
         </p>
+      )}
+
+      {/* PiP Debug Panel — แตะ 3 ครั้งเพื่อเปิด/ปิด */}
+      <PipDebugPanel />
+    </div>
+  )
+}
+
+// ============================================
+// PiP Debug Panel — แตะ 3 ครั้งที่ footer เพื่อเปิด
+// ============================================
+
+function PipDebugPanel() {
+  const [show, setShow] = useState(false)
+  const [info, setInfo] = useState<any>(null)
+  const tapCount = useRef(0)
+  const tapTimer = useRef<NodeJS.Timeout | null>(null)
+
+  const handleTap = () => {
+    tapCount.current++
+    if (tapTimer.current) clearTimeout(tapTimer.current)
+    tapTimer.current = setTimeout(() => { tapCount.current = 0 }, 600)
+    if (tapCount.current >= 3) {
+      tapCount.current = 0
+      setShow(prev => !prev)
+      refreshInfo()
+    }
+  }
+
+  const refreshInfo = () => {
+    const debug = pipManager.getDebugInfo()
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+    const isSafari = /Safari/.test(ua) && !/Chrome/.test(ua)
+    const isIOS = /iPad|iPhone|iPod/.test(ua)
+    setInfo({ ...debug, isSafari, isIOS, ua: ua.slice(0, 80) })
+  }
+
+  if (!show) {
+    return (
+      <div onClick={handleTap} className="text-center text-[10px] text-gray-600 py-2 select-none">
+        tap 3x for debug
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 text-[11px] font-mono space-y-1 mx-2">
+      <div className="flex justify-between items-center mb-2">
+        <span className="text-yellow-400 font-bold">PiP Debug</span>
+        <div className="flex gap-2">
+          <button onClick={refreshInfo} className="text-blue-400 underline">refresh</button>
+          <button onClick={() => setShow(false)} className="text-red-400">close</button>
+        </div>
+      </div>
+      {info && (
+        <>
+          <div className={info.hlsUrl ? 'text-green-400' : 'text-red-400'}>
+            hlsUrl: {info.hlsUrl || 'NULL (VPS ไม่ได้ส่ง)'}
+          </div>
+          <div className={info.hlsReady ? 'text-green-400' : 'text-yellow-400'}>
+            hlsReady: {String(info.hlsReady)}
+          </div>
+          <div className="text-gray-300">
+            hlsVideoState: {info.hlsVideoState ?? 'null'} (0=empty 1=meta 2=current 3=future 4=enough)
+          </div>
+          <div className="text-gray-300">
+            pipMode: <span className="text-cyan-400">{info.pipMode}</span>
+          </div>
+          {info.lastError && (
+            <div className="text-red-400 break-all">
+              lastError: {info.lastError}
+            </div>
+          )}
+          <div className="text-gray-500 break-all">
+            {info.isIOS ? '📱 iOS' : '💻 non-iOS'} | {info.isSafari ? '🧭 Safari' : '🌐 non-Safari'}
+          </div>
+          <div className="text-gray-600 break-all text-[9px]">
+            {info.ua}
+          </div>
+        </>
       )}
     </div>
   )
