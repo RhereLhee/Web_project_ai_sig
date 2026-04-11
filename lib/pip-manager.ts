@@ -265,10 +265,13 @@ class PipManager {
     this.hlsVideo.setAttribute('webkit-playsinline', '')
     this.hlsVideo.setAttribute('autopictureinpicture', '')
     this.hlsVideo.setAttribute('data-pip-manager', 'hls')
+    this.hlsVideo.disableRemotePlayback = true // ซ่อนปุ่ม AirPlay/Cast
     // iOS ต้อง "เห็น" video จึงจะอนุญาต PiP — ซ่อนแต่มีขนาดจริง
-    // ขนาดใหญ่ขึ้นเล็กน้อยเพื่อให้ iOS ยอมรับว่า "visible"
     this.hlsVideo.style.cssText = 'position:fixed;bottom:0;left:0;width:10px;height:10px;opacity:0.01;pointer-events:none;z-index:-1;'
     document.body.appendChild(this.hlsVideo)
+
+    // ซ่อนปุ่มควบคุมใน PiP window — ลบ action handlers ทั้งหมด
+    this.setupViewOnlyMediaSession()
 
     // Listen for PiP exit events
     this.hlsVideo.addEventListener('leavepictureinpicture', () => {
@@ -312,6 +315,47 @@ class PipManager {
 
     // เริ่ม load
     this.hlsVideo.load()
+  }
+
+  // ซ่อนปุ่มควบคุม PiP — ให้เหลือแค่ดูอย่างเดียว
+  private setupViewOnlyMediaSession(): void {
+    if (!('mediaSession' in navigator)) return
+
+    try {
+      // ตั้งชื่อให้แสดงใน PiP
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: 'TechTrade Signal',
+        artist: 'Live Trading',
+      })
+
+      // ลบปุ่มทั้งหมด — set handler เป็น null
+      const actions: MediaSessionAction[] = [
+        'play', 'pause', 'seekbackward', 'seekforward',
+        'previoustrack', 'nexttrack', 'skipad',
+      ]
+      for (const action of actions) {
+        try {
+          navigator.mediaSession.setActionHandler(action, null)
+        } catch {
+          // บาง action อาจไม่รองรับ
+        }
+      }
+
+      // play/pause — ไม่ให้หยุดได้ (เล่นต่อเสมอ)
+      try {
+        navigator.mediaSession.setActionHandler('play', () => {
+          this.hlsVideo?.play().catch(() => {})
+        })
+        navigator.mediaSession.setActionHandler('pause', () => {
+          // ไม่ pause — เล่นต่อทันที
+          this.hlsVideo?.play().catch(() => {})
+        })
+      } catch {}
+
+      console.log('[PiP] Media session: view-only mode set')
+    } catch (e) {
+      console.log('[PiP] Media session setup failed:', e)
+    }
   }
 
   private async startHlsPip(): Promise<boolean> {
