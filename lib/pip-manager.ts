@@ -69,6 +69,7 @@ class PipManager {
   private globalCountdown = 0
   private hlsUrl: string | null = null
   private hlsReady = false // HLS video pre-loaded and ready for instant PiP
+  private mediaSessionIntervalId: ReturnType<typeof setInterval> | null = null
 
   // Listeners
   private stateListeners: Set<PipStateListener> = new Set()
@@ -101,6 +102,76 @@ class PipManager {
 
     // Cleanup any existing PiP elements (from hot reload or previous instances)
     document.querySelectorAll('[data-pip-manager]').forEach(el => el.remove())
+
+    // ✅ Inject global CSS to hide webkit media controls on PiP video
+    // Sigzy-style: ซ่อนปุ่มทั้งหมดใน PiP ให้เหลือแค่ดู
+    const existingStyle = document.getElementById('pip-hide-controls-css')
+    if (existingStyle) existingStyle.remove()
+    const style = document.createElement('style')
+    style.id = 'pip-hide-controls-css'
+    style.textContent = `
+      /* ซ่อน webkit media controls ทั้งหมด */
+      video[data-pip-manager]::-webkit-media-controls {
+        display: none !important;
+        -webkit-appearance: none !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        width: 0 !important;
+      }
+      video[data-pip-manager]::-webkit-media-controls-panel {
+        display: none !important;
+        -webkit-appearance: none !important;
+        opacity: 0 !important;
+      }
+      video[data-pip-manager]::-webkit-media-controls-play-button {
+        display: none !important;
+        -webkit-appearance: none !important;
+      }
+      video[data-pip-manager]::-webkit-media-controls-start-playback-button {
+        display: none !important;
+        -webkit-appearance: none !important;
+      }
+      video[data-pip-manager]::-webkit-media-controls-current-time-display {
+        display: none !important;
+      }
+      video[data-pip-manager]::-webkit-media-controls-time-remaining-display {
+        display: none !important;
+      }
+      video[data-pip-manager]::-webkit-media-controls-timeline {
+        display: none !important;
+      }
+      video[data-pip-manager]::-webkit-media-controls-seek-back-button {
+        display: none !important;
+      }
+      video[data-pip-manager]::-webkit-media-controls-seek-forward-button {
+        display: none !important;
+      }
+      video[data-pip-manager]::-webkit-media-controls-fullscreen-button {
+        display: none !important;
+      }
+      video[data-pip-manager]::-webkit-media-controls-toggle-closed-captions-button {
+        display: none !important;
+      }
+      video[data-pip-manager]::-webkit-media-controls-volume-slider {
+        display: none !important;
+      }
+      video[data-pip-manager]::-webkit-media-controls-mute-button {
+        display: none !important;
+      }
+      video[data-pip-manager]::-webkit-media-controls-overlay-enclosure {
+        display: none !important;
+      }
+      video[data-pip-manager]::-webkit-media-controls-enclosure {
+        display: none !important;
+      }
+      /* Chrome/Edge PiP controls */
+      video[data-pip-manager]::--media-controls-overlay-play-button {
+        display: none !important;
+      }
+    `
+    document.head.appendChild(style)
 
     // Create hidden canvas
     this.canvas = document.createElement('canvas')
@@ -256,6 +327,10 @@ class PipManager {
     this.hlsVideo.setAttribute('playsinline', '')
     this.hlsVideo.setAttribute('webkit-playsinline', '')
     this.hlsVideo.setAttribute('data-pip-manager', 'hls')
+    // ✅ ซ่อน controls: controlsList attribute (Chrome/Edge)
+    this.hlsVideo.setAttribute('controlsList', 'nofullscreen nodownload noremoteplayback noplaybackrate')
+    // ✅ ซ่อน controls: x-webkit attributes
+    this.hlsVideo.setAttribute('x-webkit-airplay', 'deny')
     // ซ่อนจริงๆ — ไม่ให้ iOS เปิด native player ขึ้นมา
     this.hlsVideo.style.cssText = 'position:fixed;bottom:-100px;left:-100px;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-9999;'
     document.body.appendChild(this.hlsVideo)
@@ -263,12 +338,14 @@ class PipManager {
     // Listen for PiP exit events
     this.hlsVideo.addEventListener('leavepictureinpicture', () => {
       this.isActive = false
+      this.stopMediaSessionKeepalive()
       this.notifyStateListeners(false)
     })
     this.hlsVideo.addEventListener('webkitpresentationmodechanged', () => {
       const mode = (this.hlsVideo as any)?.webkitPresentationMode
       if (mode === 'inline') {
         this.isActive = false
+        this.stopMediaSessionKeepalive()
         this.notifyStateListeners(false)
       }
     })
@@ -285,7 +362,7 @@ class PipManager {
     this.hlsVideo.load()
   }
 
-  // ซ่อนปุ่มควบคุม PiP — ให้เหลือแค่ดูอย่างเดียว
+  // ซ่อนปุ่มควบคุม PiP — ให้เหลือแค่ดูอย่างเดียว (Sigzy-style)
   private setupViewOnlyMediaSession(): void {
     if (!('mediaSession' in navigator)) return
 
@@ -293,17 +370,22 @@ class PipManager {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: 'TechTrade Signal',
         artist: 'Live Trading',
+        // ไม่ใส่ artwork → ลด UI clutter ใน PiP
       })
+
+      // ✅ บอก browser ว่ากำลังเล่นอยู่ → ไม่แสดง play button
+      navigator.mediaSession.playbackState = 'playing'
 
       // iOS: ต้อง set handler เป็น function เปล่า (ไม่ใช่ null)
       // null = ใช้ default → ปุ่มยังแสดง
       // () => {} = override เป็นไม่ทำอะไร → ปุ่มหาย
       const noop = () => {}
-      const actions: MediaSessionAction[] = [
+      const allActions: MediaSessionAction[] = [
         'seekbackward', 'seekforward',
         'previoustrack', 'nexttrack', 'skipad',
+        'seekto', 'stop',
       ]
-      for (const action of actions) {
+      for (const action of allActions) {
         try {
           navigator.mediaSession.setActionHandler(action, noop)
         } catch {
@@ -311,16 +393,18 @@ class PipManager {
         }
       }
 
-      // play/pause — กด pause แล้วเล่นต่อทันที
+      // play/pause — กด pause แล้วเล่นต่อทันที + รักษา playbackState
       try {
         navigator.mediaSession.setActionHandler('play', () => {
           this.hlsVideo?.play().catch(() => {})
+          navigator.mediaSession.playbackState = 'playing'
         })
         navigator.mediaSession.setActionHandler('pause', () => {
           // ไม่ pause จริง — resume ทันที
+          navigator.mediaSession.playbackState = 'playing'
           setTimeout(() => {
             this.hlsVideo?.play().catch(() => {})
-          }, 100)
+          }, 50)
         })
       } catch {}
 
@@ -353,6 +437,9 @@ class PipManager {
     }
 
     try {
+      // ✅ Setup media session BEFORE entering PiP — ซ่อน controls ตั้งแต่แรก
+      this.setupViewOnlyMediaSession()
+
       await this.hlsVideo.play()
 
       // iOS Safari: ลอง webkit ก่อน
@@ -367,12 +454,34 @@ class PipManager {
       this.pipMode = 'hls'
       this.isActive = true
       this.notifyStateListeners(true)
+
+      // ✅ เรียกอีกรอบหลัง PiP เริ่ม — เผื่อ browser reset handlers
       this.setupViewOnlyMediaSession()
+
+      // ✅ Keepalive: iOS อาจ reset playbackState — เซ็ตซ้ำทุก 2 วิ
+      this.stopMediaSessionKeepalive()
+      this.mediaSessionIntervalId = setInterval(() => {
+        if ('mediaSession' in navigator) {
+          navigator.mediaSession.playbackState = 'playing'
+        }
+        // เผื่อ video ถูก pause โดย system → เล่นต่อ
+        if (this.hlsVideo && this.hlsVideo.paused) {
+          this.hlsVideo.play().catch(() => {})
+        }
+      }, 2000)
+
       return true
 
     } catch {
       try { this.hlsVideo.pause() } catch {}
       return false
+    }
+  }
+
+  private stopMediaSessionKeepalive(): void {
+    if (this.mediaSessionIntervalId) {
+      clearInterval(this.mediaSessionIntervalId)
+      this.mediaSessionIntervalId = null
     }
   }
 
@@ -584,6 +693,7 @@ class PipManager {
 
       // ปิด HLS video
       this.cleanupHlsVideo()
+      this.stopMediaSessionKeepalive()
 
       // ปิด overlay
       if (this.overlayContainer && this.overlayContainer.parentNode) {
