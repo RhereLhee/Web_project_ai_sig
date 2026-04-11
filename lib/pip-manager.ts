@@ -69,7 +69,6 @@ class PipManager {
   private globalCountdown = 0
   private hlsUrl: string | null = null
   private hlsReady = false // HLS video pre-loaded and ready for instant PiP
-  private lastError: string | null = null // เก็บ error ล่าสุดสำหรับ debug
 
   // Listeners
   private stateListeners: Set<PipStateListener> = new Set()
@@ -200,7 +199,7 @@ class PipManager {
 
   async toggle(): Promise<void> {
     if (!this.isSupported) {
-      console.warn('PiP not supported')
+      // PiP not supported
       return
     }
 
@@ -214,19 +213,15 @@ class PipManager {
   async start(): Promise<void> {
     if (this.isActive) return
 
-    console.log('[PiP] Starting fallback chain: HLS → Canvas → Overlay')
-
     // ลองตามลำดับ: HLS → Canvas PiP → Overlay
     const hlsSuccess = await this.startHlsPip()
     if (hlsSuccess) return
 
     // Canvas captureStream PiP (Desktop Chrome/Edge)
-    console.log('[PiP] Trying Canvas PiP...')
     const nativeSuccess = await this.startCanvasPip()
     if (nativeSuccess) return
 
     // Overlay fallback (ลอยในเว็บเท่านั้น)
-    console.log('[PiP] Falling back to Overlay (in-web only)')
     this.pipMode = 'popup'
     await this.startPopupPip()
   }
@@ -248,8 +243,6 @@ class PipManager {
 
     const hlsUrl = this.hlsUrl
     if (!hlsUrl) return
-
-    console.log('[PiP] Pre-loading HLS video:', hlsUrl)
 
     this.hlsVideo = document.createElement('video')
     this.hlsVideo.src = hlsUrl
@@ -282,28 +275,9 @@ class PipManager {
 
     this.hlsVideo.addEventListener('canplay', () => {
       this.hlsReady = true
-      console.log('[PiP] ✅ HLS video pre-loaded and ready for PiP', {
-        readyState: this.hlsVideo?.readyState,
-        duration: this.hlsVideo?.duration,
-        videoWidth: this.hlsVideo?.videoWidth,
-      })
-    }, { once: true })
-
-    this.hlsVideo.addEventListener('loadedmetadata', () => {
-      console.log('[PiP] HLS metadata loaded', {
-        duration: this.hlsVideo?.duration,
-        videoWidth: this.hlsVideo?.videoWidth,
-        videoHeight: this.hlsVideo?.videoHeight,
-      })
     }, { once: true })
 
     this.hlsVideo.addEventListener('error', () => {
-      const err = this.hlsVideo?.error
-      console.log('[PiP] ❌ HLS video preload failed:', {
-        code: err?.code,
-        message: err?.message,
-        networkState: this.hlsVideo?.networkState,
-      })
       this.hlsReady = false
     }, { once: true })
 
@@ -350,34 +324,20 @@ class PipManager {
         })
       } catch {}
 
-      console.log('[PiP] Media session: view-only mode set')
-    } catch (e) {
-      console.log('[PiP] Media session setup failed:', e)
+    } catch {
+      // Media session not supported
     }
   }
 
   private async startHlsPip(): Promise<boolean> {
-    // Diagnostic logging
-    console.log('[PiP] startHlsPip check:', {
-      hlsUrl: this.hlsUrl,
-      hlsVideo: !!this.hlsVideo,
-      hlsReady: this.hlsReady,
-      readyState: this.hlsVideo?.readyState,
-      networkState: this.hlsVideo?.networkState,
-    })
-
     if (!this.hlsUrl || !this.hlsVideo) {
-      this.lastError = !this.hlsUrl ? 'No HLS URL from WebSocket (VPS ยังไม่ set HLS_PUBLIC_URL)' : 'No HLS video element'
-      console.log('[PiP] HLS skip:', this.lastError)
       return false
     }
 
     // ถ้า video ยัง load ไม่เสร็จ → ลอง reload + รอสั้นๆ
     if (!this.hlsReady && this.hlsVideo.readyState < 2) {
-      console.log('[PiP] HLS video not ready, attempting reload...')
       this.hlsVideo.src = this.hlsUrl
       this.hlsVideo.load()
-      // รอ canplay สั้นๆ (max 3 วินาที) — ต้องเร็วไม่งั้น gesture token หมด
       const ready = await new Promise<boolean>((resolve) => {
         const timeout = setTimeout(() => resolve(false), 3000)
         this.hlsVideo!.addEventListener('canplay', () => {
@@ -389,42 +349,28 @@ class PipManager {
           resolve(false)
         }, { once: true })
       })
-      if (!ready) {
-        this.lastError = 'HLS video ไม่สามารถ load ได้ภายใน 3s (CORS หรือ URL ผิด)'
-        console.log('[PiP] HLS skip:', this.lastError)
-        return false
-      }
+      if (!ready) return false
     }
 
     try {
-      // ⚡ ต้องเร็วที่สุด — iOS gesture token มีอายุสั้นมาก
-      // play() + requestPiP ต้องเกิดทันทีหลัง user tap
       await this.hlsVideo.play()
-      console.log('[PiP] HLS play() success')
 
-      // iOS Safari: ลอง webkit ก่อน (รองรับ HLS natively)
+      // iOS Safari: ลอง webkit ก่อน
       if ((this.hlsVideo as any).webkitSupportsPresentationMode) {
-        console.log('[PiP] Using webkit PiP (Safari)')
         ;(this.hlsVideo as any).webkitSetPresentationMode('picture-in-picture')
       } else if ('requestPictureInPicture' in this.hlsVideo) {
-        console.log('[PiP] Using standard PiP API')
         await (this.hlsVideo as any).requestPictureInPicture()
       } else {
-        throw new Error('PiP API not available on this browser')
+        throw new Error('PiP API not available')
       }
 
       this.pipMode = 'hls'
       this.isActive = true
       this.notifyStateListeners(true)
-      // ซ่อนปุ่มควบคุมหลังเข้า PiP สำเร็จ
       this.setupViewOnlyMediaSession()
-      console.log('[PiP] ✅ HLS PiP activated — ลอยเหนือแอปอื่นได้')
       return true
 
-    } catch (error: any) {
-      this.lastError = `HLS PiP error: ${error?.message || error}`
-      console.log('[PiP] HLS PiP failed:', error)
-      // Cleanup failed play
+    } catch {
       try { this.hlsVideo.pause() } catch {}
       return false
     }
@@ -490,11 +436,11 @@ class PipManager {
 
       this.pipMode = 'native'
       this.startRenderLoop()
-      console.log('✅ Canvas PiP activated')
+      // Canvas PiP activated
       return true
 
     } catch (error) {
-      console.log('Canvas PiP failed:', error)
+      // Canvas PiP failed
       this.cleanupStream()
       return false
     }
@@ -573,7 +519,7 @@ class PipManager {
       this.startRenderLoop()
 
     } catch (error) {
-      console.error('Overlay PiP failed:', error)
+      // Overlay PiP failed
       this.isActive = false
     }
   }
@@ -653,7 +599,7 @@ class PipManager {
       this.cleanupStream()
       this.notifyStateListeners(false)
     } catch (error) {
-      console.error('Failed to stop PiP:', error)
+      // Failed to stop PiP
     }
   }
 
@@ -1041,15 +987,6 @@ class PipManager {
     return this.isSupported
   }
 
-  getDebugInfo(): { hlsUrl: string | null; hlsReady: boolean; pipMode: PipMode; lastError: string | null; hlsVideoState: number | null } {
-    return {
-      hlsUrl: this.hlsUrl,
-      hlsReady: this.hlsReady,
-      pipMode: this.pipMode,
-      lastError: this.lastError,
-      hlsVideoState: this.hlsVideo?.readyState ?? null,
-    }
-  }
 
   // ============================================
   // CLEANUP

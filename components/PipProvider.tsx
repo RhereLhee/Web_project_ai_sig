@@ -94,7 +94,6 @@ export function PipProvider({ children, wsUrl }: PipProviderProps) {
 
       // ถ้ามี signal ใหม่ที่ไม่เคยเห็น → เล่นเสียง
       if (currentSignalKey && currentSignalKey !== prevSignalKey) {
-        console.log(`🔔 New signal: ${symbol} ${activeSignal.signal_type}`)
         playSignalAlert()
       }
 
@@ -151,30 +150,9 @@ export function PipProvider({ children, wsUrl }: PipProviderProps) {
     }
   }, [wsUrl, checkForNewSignals])
 
-  // Local countdown timer
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setGlobalCountdown(prev => prev > 0 ? prev - 1 : 299)
-      
-      // Also update countdown in symbolData
-      setSymbolData(prev => {
-        const updated = { ...prev }
-        for (const symbol in updated) {
-          if (updated[symbol]) {
-            updated[symbol] = {
-              ...updated[symbol],
-              countdown: (updated[symbol].countdown || 0) > 0
-                ? (updated[symbol].countdown || 0) - 1
-                : 299
-            }
-          }
-        }
-        return updated
-      })
-    }, 1000)
-
-    return () => clearInterval(interval)
-  }, [])
+  // Countdown อิงจาก MT5 ตรงๆ — ไม่นับเอง
+  // ค่า countdown มาจาก WebSocket data ทุก ~1 วินาที (signalService.onData)
+  // เมื่อตลาดปิด MT5 หยุดส่ง → countdown หยุดตาม
 
   // Toggle PiP
   const togglePip = useCallback(async () => {
