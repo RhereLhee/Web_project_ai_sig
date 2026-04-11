@@ -352,7 +352,7 @@ export function SignalRoomContent({ user }: SignalRoomContentProps) {
               {isEnabled && (
                 <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 text-center">
                   <span className="text-[#00E676] font-mono text-xs md:text-sm font-bold tracking-wide">
-                    {DISPLAY_NAMES[i]}  |  {formatTime(symbolData[symbol]?.countdown || globalCountdown)}
+                    {DISPLAY_NAMES[i]}  |  {formatTime(symbolData[symbol]?.countdown ?? globalCountdown)}
                   </span>
                 </div>
               )}
