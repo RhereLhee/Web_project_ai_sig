@@ -20,7 +20,7 @@
 
 ---
 
-## Architecture (Current - 10 เม.ย. 2026)
+## Architecture (Updated 12 เม.ย. 2026)
 
 ```
                          ┌─────────────────────────────────────────────────────────┐
@@ -42,7 +42,9 @@
                          │      URL เปลี่ยนทุกครั้งที่ restart tunnel              │
                          │                                                         │
                          │  hls_streamer.py (Background task ใน run_api.py)       │
-                         │    - Pillow render chart 960x540 (3x2 grid)            │
+                         │    - Pillow render chart 1280x720 HD                   │
+                         │    - Centered symbol name, large fonts, no prices      │
+                         │    - Single countdown MM:SS at top-right                │
                          │    - FFmpeg pipe → HLS (.m3u8 + .ts segments)           │
                          │    - Output: stream/signal.m3u8                         │
                          └───────────┬─────────────────────────────────────────────┘
@@ -55,8 +57,10 @@
 │                                                                                  │
 │  realtime_api.py (เหมือนกัน deploy จาก repo เดียวกัน)                           │
 │    - รับ bridge data จาก VPS                                                    │
+│    - Cache _bridge_hls_url จาก bridge data                                      │
 │    - WebSocket /ws/signal → broadcast ไป frontend clients                       │
-│    - ส่ง hls_url ต่อไป client (pass-through จาก VPS bridge data)                │
+│    - hls_url fallback chain: env > bridge data > cached URL                     │
+│    - /debug/hls endpoint สำหรับ debug HLS URL delivery                          │
 │    - ถ้าไม่มี bridge data → broadcast mock_data อัตโนมัติ                       │
 │    - Auth: ถ้าไม่มี API key ตั้ง → skip auth (ให้ VPS POST ได้เลย)              │
 │                                                                                  │
@@ -80,15 +84,20 @@
 │    - subscribe signal-service data                                               │
 │    - ส่ง data ไป pip-manager.ts                                                 │
 │    - Sound alert เมื่อมี signal ใหม่                                            │
+│    - Countdown จาก MT5 ตรงๆ (ไม่มี local timer)                                │
 │                                                                                  │
 │  pip-manager.ts (Singleton - PiP Fallback Chain)                                │
 │    1. HLS PiP → <video src="m3u8"> + requestPictureInPicture (ลอยข้ามแอป)       │
 │    2. Canvas PiP → captureStream + requestPictureInPicture (Desktop only)        │
 │    3. Overlay → fixed div ลากได้ในเว็บ (fallback สุดท้าย)                       │
+│    + CSS injection ซ่อน webkit media controls                                   │
+│    + Media Session API noop handlers ซ่อนปุ่มควบคุม                             │
+│    + playbackState keepalive ทุก 2 วิ                                           │
 │                                                                                  │
 │  SignalRoomContent.tsx                                                            │
 │    - แสดง 6 charts (3x2 grid) ด้วย canvas                                      │
 │    - Lock back button (history.pushState)                                        │
+│    - Countdown: symbolData[symbol]?.countdown ?? globalCountdown                 │
 │                                                                                  │
 │  PWA: manifest.json (Add to Home Screen, standalone, no address bar)             │
 └──────────────────────────────────────────────────────────────────────────────────┘
@@ -100,6 +109,16 @@ MT5 → real_time_monitor.py → POST /bridge/update → Render Python API → W
                             └→ POST localhost:8000 → VPS local API → HLS streamer reads data
 ```
 
+### HLS URL Delivery Chain
+```
+VPS: HLS_PUBLIC_URL env (or hardcoded default in real_time_monitor.py)
+  → real_time_monitor.py แนบใน bridge data
+  → POST /bridge/update ไป Render API
+  → realtime_api.py cache _bridge_hls_url + ส่งต่อใน WebSocket broadcast
+  → Frontend signal-service.ts รับ data.hls_url
+  → pip-manager.ts preloadHlsVideo() สร้าง <video> element พร้อมใช้
+```
+
 ### 6 Trading Symbols
 ```
 AUDUSDm, EURUSDm, GBPUSDm, USDJPYm, EURGBPm, EURJPYm
@@ -107,9 +126,11 @@ AUDUSDm, EURUSDm, GBPUSDm, USDJPYm, EURGBPm, EURJPYm
 
 ---
 
-## สถานะปัจจุบัน (10 เม.ย. 2026)
+## สถานะปัจจุบัน (12 เม.ย. 2026)
 
 ### ทำเสร็จแล้ว
+
+#### Infrastructure & Security
 - [x] Security Review + แก้ไข 12+ vulnerabilities
 - [x] JWT lazy initialization (ไม่ throw ตอน build time)
 - [x] Logger + Email alert (korawitns@gmail.com)
@@ -118,94 +139,136 @@ AUDUSDm, EURUSDm, GBPUSDm, USDJPYm, EURGBPm, EURJPYm
 - [x] Affiliate commission lock (ปิดชั่วคราว)
 - [x] Admin panel: System Controls + System Logs
 - [x] Standalone deployment fix (Render)
-- [x] Mobile layout fix (responsive grid, ตัวเลขไม่ซ้อนทับ)
-- [x] Login background flash fix
-- [x] Signal page แสดง 6 symbols (3x2 grid) แทน 4 symbols เดิม
 - [x] Bridge auth fix: skip auth เมื่อไม่มี API key ตั้ง
 - [x] Bridge timeout เพิ่มจาก 2s เป็น 15s (รอ Render cold start)
 - [x] WebSocket reconnect: max 50 attempts, cap delay 30s
-- [x] VPS ส่ง hls_url ผ่าน bridge data อัตโนมัติ
-- [x] Frontend รับ hls_url จาก WebSocket data (ไม่ hardcode)
+
+#### UI & Frontend
+- [x] Mobile layout fix (responsive grid, ตัวเลขไม่ซ้อนทับ)
+- [x] Login background flash fix
+- [x] Signal page แสดง 6 symbols (3x2 grid) แทน 4 symbols เดิม
 - [x] PWA manifest.json (Add to Home Screen, standalone, no address bar)
 - [x] Lock back button ในหน้า signal
-- [x] HLS streamer ทำงานบน VPS (FFmpeg + Pillow, 960x540, 3x2 grid)
-- [x] PiP: pip-manager.ts pre-load HLS video ทันทีที่ได้ URL
-- [x] PiP: Android Chrome ลอยเหนือแอปอื่นได้ (native Video PiP)
-- [x] PiP: Desktop Chrome ลอยได้ (canvas captureStream)
-- [x] PiP: iOS/mobile fallback เป็น overlay ลากได้ในเว็บ
-- [x] OFFLINE fix: ลบ NEXT_PUBLIC_WS_URL ที่ชี้ไป Cloudflare tunnel เก่า
+
+#### HLS Streaming (VPS)
+- [x] HLS streamer: Pillow + FFmpeg render chart → HLS stream
+- [x] Resolution: 1280x720 HD (readable on small PiP)
+- [x] Large fonts: brand 36px, symbol 30px centered, countdown 34px
+- [x] Outer padding 20px (iOS PiP rounded corners)
+- [x] No Y-axis prices, no signal arrows in header
+- [x] Single countdown MM:SS at top-right (MT5 data)
+- [x] VPS ส่ง hls_url ผ่าน bridge data อัตโนมัติ
+- [x] Render API: pass-through + cache hls_url ใน WebSocket broadcast
+
+#### PiP (Picture-in-Picture)
+- [x] pip-manager.ts: pre-load HLS video ทันทีที่ได้ URL จาก WebSocket
+- [x] PiP fallback chain: HLS → Canvas → Overlay
+- [x] iOS Safari: webkit-first PiP approach (ลอยข้ามแอปได้)
+- [x] Android Chrome: native Video PiP (ลอยข้ามแอปได้)
+- [x] Desktop Chrome: canvas captureStream PiP
+- [x] Overlay fallback: fixed div ลากได้ (สำหรับ browser ที่ไม่รองรับ PiP)
+- [x] Overlay dedup guard: ลบ overlay เก่าก่อนสร้างใหม่ (แก้ BUG ซ้อน 2 อัน)
 - [x] ลบ PipProvider ซ้อนใน SignalRoomWithProvider (layout ครอบอยู่แล้ว)
+
+#### PiP Control Hiding (Sigzy-style) — ล่าสุด
+- [x] CSS injection: ซ่อน webkit media controls pseudo-elements ทั้งหมด
+- [x] `controlsList` attribute: nofullscreen nodownload noremoteplayback noplaybackrate
+- [x] `x-webkit-airplay="deny"`
+- [x] Media Session API: noop handlers สำหรับทุก action (seekbackward, seekforward, previoustrack, nexttrack, skipad, seekto, stop)
+- [x] Play/Pause handler: กด pause แล้ว resume ทันที (50ms)
+- [x] `playbackState = 'playing'` ก่อน+หลังเข้า PiP
+- [x] Keepalive interval ทุก 2 วิ: reset playbackState + auto-resume ถ้าถูก pause
+
+#### Code Cleanup
+- [x] ลบ `SignalRooms.tsx` (557 บรรทัด dead code)
+- [x] ลบ unused `SignalRoomContent` import จาก signals/page.tsx
+- [x] ลบ console.log ทั้งหมดจาก pip-manager.ts และ PipProvider.tsx
+- [x] ลบ PipDebugPanel component (~70 บรรทัด)
+- [x] ลบ getDebugInfo, lastError fields จาก pip-manager.ts
+- [x] ลบ local countdown timer จาก PipProvider.tsx (ใช้ MT5 countdown ตรงๆ)
+- [x] แก้ countdown fallback: `||` → `??` (รองรับ countdown=0 ตอนตลาดปิด)
 
 ---
 
-## BUG ที่ยังไม่ได้แก้
+## ปัญหาที่ยังเหลืออยู่
 
-### BUG 1: PiP Overlay ทับซ้อน 2 อัน (CRITICAL)
+### ISSUE 1: Signal Room countdown ยังนับต่อเนื่อง (BACKEND)
 
-**อาการ**: กด PiP แล้วเห็นกรอบเขียว 2 อัน ทับกัน
+**อาการ**: หน้า Signal Room แสดง countdown ที่ยังนับลงเรื่อยๆ แม้ว่า Frontend ไม่มี local timer แล้ว
 
-**สาเหตุที่น่าจะเป็น (ยังไม่ confirm)**:
+**สถานะ Frontend**: CLEAN — ไม่มี `setInterval` หรือ local countdown logic แล้ว
+- `PipProvider.tsx`: `setGlobalCountdown(data.countdown)` — รับค่าจาก WebSocket ตรงๆ
+- `SignalRoomContent.tsx`: `symbolData[symbol]?.countdown ?? globalCountdown` — แสดงค่าที่ได้รับ
 
-1. **PipProvider ซ้อน 2 ชั้น** — ถูก fix แล้วใน commit `f7f00b2` โดยลบ PipProvider ออกจาก `SignalRoomWithProvider.tsx` เพราะ `layout.tsx` ครอบอยู่แล้ว **แต่ยังไม่ได้ verify ว่า fix จริง** (Render อาจยัง build ไม่เสร็จ หรือ browser cache)
+**สาเหตุที่น่าจะเป็น**: Backend (`realtime_api.py` หรือ `real_time_monitor.py`) ยังคำนวณ countdown แบบนับลงเอง แทนที่จะส่งค่าจาก MT5 ตรงๆ
 
-2. **ถ้ายัง fix ไม่ได้** ให้ตรวจสอบ:
-
-   a. **`pip-manager.ts` init()** — ตอน init จะ cleanup ด้วย `document.querySelectorAll('[data-pip-manager]')` แต่ overlay container เดิมไม่มี `data-pip-manager` attribute (fix แล้วใน commit ล่าสุด เพิ่ม `data-pip-manager='overlay'`)
-
-   b. **React StrictMode** — ถ้าเปิด StrictMode จะ mount/unmount 2 รอบใน dev mode ทำให้ singleton อาจถูก init 2 ครั้ง
-
-   c. **Hot reload / Fast Refresh** — singleton ไม่ถูก destroy ตอน hot reload ทำให้มี element ค้างใน DOM
+**ไฟล์ที่ต้องตรวจสอบ (Backend repo)**:
+- `real_time_monitor.py` — ดูว่า countdown ถูกคำนวณอย่างไรก่อนส่งไป bridge
+- `api/realtime_api.py` — ดูว่า broadcast_loop มี countdown logic อิสระหรือไม่
 
 **วิธี debug**:
 ```javascript
-// เปิด Chrome DevTools Console แล้วรัน:
-document.querySelectorAll('#pip-overlay').length
-// ถ้าได้ > 1 = overlay ซ้อนจริง
-
-document.querySelectorAll('[data-pip-manager]').length
-// ดูจำนวน element ทั้งหมดที่ pip-manager สร้าง
+// Browser Console ตอน WebSocket connected:
+// ดู countdown ที่ได้รับจาก server จริงๆ
+signalService.onData((d) => console.log('countdown:', d.countdown))
 ```
 
-**วิธีแก้ถ้ายังซ้อน**:
-```typescript
-// ใน pip-manager.ts startPopupPip() เพิ่มก่อนสร้าง overlay ใหม่:
-const existing = document.getElementById('pip-overlay')
-if (existing) existing.remove()
-```
-
-**ไฟล์ที่เกี่ยว**:
-- `lib/pip-manager.ts` line 403-457 (startPopupPip)
-- `lib/pip-manager.ts` line 97-103 (init cleanup)
-- `components/PipProvider.tsx` (provider wrapper)
-- `app/(main)/layout.tsx` line 32 (PipProviderWrapper)
-- `app/(main)/PipProviderWrapper.tsx` (conditional wrapper)
-- `components/SignalRoomWithProvider.tsx` (ลบ PipProvider ซ้อนแล้ว)
+**วิธีแก้ที่ควรทำ**: ให้ `real_time_monitor.py` ส่ง countdown ที่เหลือจริงจาก MT5 server time (คำนวณจาก `seconds_until_next_candle = timeframe_seconds - (server_time % timeframe_seconds)`) ไม่ใช่นับลงจากค่าคงที่
 
 ---
 
-### BUG 2: PiP ลอยข้ามแอปไม่ได้บน iOS (MAJOR)
+### ISSUE 2: iOS PiP ยังแสดงปุ่มควบคุมบางส่วน (PLATFORM LIMITATION)
 
-**อาการ**: กด PiP บน iOS → ได้แค่ overlay ลอยในเว็บ ไม่ลอยข้ามแอปอื่น
+**อาการ**: PiP บน iOS ลอยข้ามแอปได้แล้ว แต่ยังเห็นปุ่ม play/pause และ close
 
-**สาเหตุ**: HLS PiP ถูก skip → fallback ไป overlay เพราะ:
+**สาเหตุ**: iOS PiP controls เป็น **system-level UI** ที่ Apple ควบคุม — ไม่สามารถซ่อน 100% จาก web ได้
 
-1. **VPS ยังไม่ได้ set `HLS_PUBLIC_URL` env** → `hls_url` ไม่ถูกส่งมาใน bridge data → frontend ไม่มี URL → skip HLS mode
+**สิ่งที่ทำแล้ว (ทุกเทคนิคที่เป็นไปได้จาก web)**:
+1. CSS pseudo-element selectors (`video::-webkit-media-controls` etc.)
+2. `controlsList` attribute
+3. Media Session API noop handlers
+4. `playbackState = 'playing'` keepalive
+5. Play/Pause handler: auto-resume ทันทีเมื่อถูก pause
 
-2. **Cloudflare Quick Tunnel URL เปลี่ยนทุกครั้งที่ restart** → ต้อง set env ใหม่ทุกครั้ง → ไม่ practical
+**ผลลัพธ์**: ปุ่ม skip forward/backward หายไปแล้ว เหลือแค่ play/pause + close (system controls)
 
-3. **iOS Safari gesture token timeout** → ถ้า HLS video ยัง load ไม่เสร็จตอนกด PiP → `requestPictureInPicture()` ถูก reject → **fix แล้ว** ด้วย pre-load approach (commit `1706b5f`)
+**ทางเลือกเพิ่มเติม (ถ้าต้องการซ่อน 100%)**:
+- **Native iOS App (Swift/SwiftUI)**: ใช้ `AVPlayerViewController` + override PiP controls — ซ่อนได้หมด
+- **React Native + expo-av**: PiP ผ่าน native layer — มีโอกาสซ่อนได้มากกว่า web
+- **Sigzy ทำได้**: เพราะ Sigzy มี native app (แม้ว่าเริ่มจาก web เหมือนกัน)
 
-4. **iOS Chrome ไม่รองรับ PiP API เลย** → ต้องใช้ Safari เท่านั้น
+---
 
-**PiP Fallback Chain ปัจจุบัน** (`lib/pip-manager.ts`):
+### ISSUE 3: Cloudflare Quick Tunnel URL ไม่คงที่
+
+**อาการ**: ทุกครั้งที่ restart Cloudflare tunnel บน VPS → URL เปลี่ยน → ต้อง set `HLS_PUBLIC_URL` ใหม่
+
+**Workaround ปัจจุบัน**: Hardcode URL เป็น default value ใน `real_time_monitor.py` line 88:
+```python
+HLS_PUBLIC_URL = os.environ.get("HLS_PUBLIC_URL", "https://xxx.trycloudflare.com")
 ```
-User กด PiP button
+→ ต้องแก้ค่า default ทุกครั้งที่ restart tunnel
+
+**ทางแก้ระยะยาว**:
+1. **Cloudflare Named Tunnel** (ฟรี) — ต้องมี domain name → URL คงที่ตลอด
+2. **nginx + certbot + static domain** — self-hosted reverse proxy
+3. **Deploy HLS on Render** — ไม่ต้อง tunnel (แต่ Render Free Tier มี limitation)
+
+---
+
+## PiP Fallback Chain (Technical Detail)
+
+```
+User กด PiP button (pip-manager.ts toggle())
     │
     ▼
 1. startHlsPip()
    - ต้องมี this.hlsUrl (มาจาก WebSocket data.hls_url)
    - ต้องมี this.hlsVideo (pre-loaded ตอนได้ URL)
-   - เรียก play() + requestPictureInPicture() ทันที
+   - setupViewOnlyMediaSession() ก่อนเข้า PiP
+   - เรียก play() + requestPictureInPicture()
+   - setupViewOnlyMediaSession() อีกรอบหลัง PiP เริ่ม
+   - เริ่ม keepalive interval (playbackState + auto-resume)
    - ถ้าสำเร็จ → ลอยข้ามแอปได้ ✅
    - ถ้า fail → ↓
     │
@@ -218,81 +281,68 @@ User กด PiP button
     │
     ▼
 3. startPopupPip()
+   - ลบ overlay เก่าก่อน (ป้องกันซ้อน)
    - สร้าง fixed div overlay z-index:9999
    - ลากได้ด้วย touch/mouse
    - ลอยในเว็บเท่านั้น ❌ ไม่ข้ามแอป
 ```
 
-**สิ่งที่ต้องทำเพื่อให้ HLS PiP ทำงาน (end-to-end)**:
+### PiP Control Hiding Techniques (Sigzy-style)
 
-| Step | ที่ไหน | ทำอะไร | สถานะ |
-|---|---|---|---|
-| 1 | VPS | ติดตั้ง FFmpeg | DONE |
-| 2 | VPS | `hls_streamer.py` render chart → HLS | DONE |
-| 3 | VPS | `realtime_api.py` mount /stream/ + start streamer | DONE |
-| 4 | VPS | Cloudflare Tunnel HTTPS | DONE (Quick Tunnel) |
-| 5 | VPS | set `HLS_PUBLIC_URL` env | **TODO** |
-| 6 | VPS | `real_time_monitor.py` แนบ hls_url ใน bridge data | DONE |
-| 7 | Render API | pass-through hls_url ใน WebSocket broadcast | DONE |
-| 8 | Frontend | `signal-service.ts` รับ hls_url | DONE |
-| 9 | Frontend | `pip-manager.ts` pre-load HLS video | DONE |
-| 10 | Frontend | `pip-manager.ts` instant play + requestPiP | DONE |
-| 11 | User | ต้องใช้ Safari (ไม่ใช่ Chrome) บน iOS | N/A |
-
-**ปัญหา Cloudflare Quick Tunnel**:
-- URL เปลี่ยนทุกครั้งที่ restart (e.g., `https://abc-xyz.trycloudflare.com`)
-- ต้อง set `$env:HLS_PUBLIC_URL` ใหม่ทุกครั้ง
-- **ทางแก้ระยะยาว**: ใช้ Cloudflare Named Tunnel (ต้องมี domain) หรือ nginx + certbot + static domain
-
-**วิธี test HLS PiP บน iOS**:
 ```
-1. VPS: เปิด Cloudflare tunnel → จด URL
-2. VPS: $env:HLS_PUBLIC_URL = "https://xxx.trycloudflare.com"
-3. VPS: restart real_time_monitor.py + run_api.py
-4. iOS: เปิด Safari (ไม่ใช่ Chrome!)
-5. iOS: ไปที่ techtrade-ztdd.onrender.com/signals
-6. iOS: กด PiP button
-7. Console ควรเห็น: "HLS video pre-loaded and ready for PiP"
-8. ถ้าสำเร็จ: เห็น video ลอยข้ามแอป
-9. ถ้า fail: ดู console log → "HLS PiP failed" + error message
+1. CSS Injection (init())
+   - <style> tag inject ใน <head>
+   - Target: video[data-pip-manager]::-webkit-media-controls-*
+   - ซ่อน: panel, play-button, start-playback, time-display,
+           timeline, seek buttons, fullscreen, captions,
+           volume, mute, overlay-enclosure, enclosure
+   - Method: display:none + visibility:hidden + opacity:0 + pointer-events:none
+
+2. Video Element Attributes (preloadHlsVideo())
+   - controls = false
+   - controlsList = "nofullscreen nodownload noremoteplayback noplaybackrate"
+   - x-webkit-airplay = "deny"
+   - disableRemotePlayback = true
+
+3. Media Session API (setupViewOnlyMediaSession())
+   - playbackState = 'playing' (ป้องกัน play button)
+   - noop handlers: seekbackward, seekforward, previoustrack,
+                     nexttrack, skipad, seekto, stop
+   - play handler: video.play() + playbackState = 'playing'
+   - pause handler: ignore + resume ทันที (50ms)
+
+4. Keepalive Interval (ทุก 2 วิ)
+   - Reset playbackState = 'playing'
+   - Auto-resume video ถ้าถูก pause โดย system
+   - หยุดอัตโนมัติเมื่อออก PiP
 ```
-
----
-
-### BUG 3: Dead Code ที่ควรลบ
-
-| File | เหตุผล |
-|---|---|
-| `app/(main)/signals/SignalRooms.tsx` (557 lines) | Component เก่า ไม่ถูก import ที่ไหน มี PiP แบบเก่าที่ใช้ HTTP polling + canvas PiP เท่านั้น |
-| `signals/page.tsx` line 4 | Import `SignalRoomContent` แต่ไม่ใช้ (ใช้ `SignalRoomWithProvider` แทน) |
-| `pip-manager.ts` field `popupWindow` | Dead field ไม่เคย assign ค่า แค่ cleanup |
 
 ---
 
 ## Key Files Reference
 
-### Frontend (Next.js) — `C:\projectP4\techtrade`
+### Frontend (Next.js) — `github.com/RhereLhee/Web_project_ai_sig`
 
 | File | หน้าที่ | หมายเหตุ |
 |---|---|---|
 | `lib/signal-service.ts` | WebSocket singleton, reconnect logic, data store | WS URL default: `wss://trading-api-83hs.onrender.com/ws/signal` |
-| `lib/pip-manager.ts` | PiP singleton, HLS/Canvas/Overlay fallback chain | Pre-loads HLS video, 640x360 canvas, 30fps |
-| `components/PipProvider.tsx` | React context, subscribe signal-service + pip-manager | Sound alert, local countdown timer |
-| `components/SignalRoomContent.tsx` | 6 charts (3x2 grid), canvas drawing, back lock | Active component |
+| `lib/pip-manager.ts` | PiP singleton, HLS/Canvas/Overlay fallback chain, control hiding | Pre-loads HLS video, CSS injection, media session keepalive |
+| `components/PipProvider.tsx` | React context, subscribe signal-service + pip-manager | Sound alert, NO local countdown (MT5 direct) |
+| `components/SignalRoomContent.tsx` | 6 charts (3x2 grid), canvas drawing, back lock | `countdown ?? globalCountdown` (ใช้ `??` ไม่ใช่ `||`) |
 | `components/SignalRoomWithProvider.tsx` | Thin wrapper, renders SignalRoomContent | PipProvider ลบออกแล้ว (อยู่ใน layout) |
-| `app/(main)/layout.tsx` | Main layout, auth check, PipProviderWrapper | PipProvider อยู่ที่นี่ |
+| `app/(main)/layout.tsx` | Main layout, auth check, PipProviderWrapper | PipProvider อยู่ที่นี่ชั้นเดียว |
 | `app/(main)/PipProviderWrapper.tsx` | Conditional PipProvider (เฉพาะ user ที่มี signal) | hasSignal check |
 | `app/(main)/signals/page.tsx` | Signal page, auth + trial logic | renders SignalRoomWithProvider |
 | `app/layout.tsx` | Root layout, PWA meta, viewport | manifest.json, apple-web-app |
 | `public/manifest.json` | PWA manifest | standalone, start_url: /signals |
 
-### Backend (Python) — `C:\Users\Administrator\PycharmProjects\pythonProject3` (VPS)
+### Backend (Python) — `github.com/RhereLhee/algorithm_trade_Project`
 
 | File | หน้าที่ | หมายเหตุ |
 |---|---|---|
 | `real_time_monitor.py` | MT5 data collection, AI prediction, bridge POST | Process 1 บน VPS, timeout 15s |
-| `api/realtime_api.py` | FastAPI server, WebSocket broadcast, bridge endpoint | Process 2 (run_api.py), deploy ทั้ง VPS + Render |
-| `api/hls_streamer.py` | Pillow + FFmpeg chart rendering → HLS stream | 960x540, 5fps, 3x2 grid |
+| `api/realtime_api.py` | FastAPI server, WebSocket broadcast, bridge endpoint | Process 2, deploy ทั้ง VPS + Render, มี /debug/hls |
+| `api/hls_streamer.py` | Pillow + FFmpeg chart rendering → HLS stream | 1280x720 HD, large fonts, no prices |
 | `api/run_api.py` | FastAPI entry point | Start server + HLS streamer background |
 | `config/settings.py` | SYMBOLS, TIMEFRAME_MAP, API keys | 6 symbols |
 
@@ -330,6 +380,9 @@ ALLOWED_ORIGINS=https://techtrade-ztdd.onrender.com,http://localhost:3000
 ```powershell
 # Cloudflare tunnel URL ปัจจุบัน (เปลี่ยนทุก restart)
 $env:HLS_PUBLIC_URL = "https://xxx.trycloudflare.com"
+
+# หรือ hardcode default ใน real_time_monitor.py line 88:
+# HLS_PUBLIC_URL = os.environ.get("HLS_PUBLIC_URL", "https://xxx.trycloudflare.com")
 
 # API key (optional, ถ้าไม่ set Render API จะ skip auth)
 # $env:API_KEY_USER = "<key>"
@@ -409,27 +462,21 @@ new WebSocket('wss://trading-api-83hs.onrender.com/ws/signal')
 - ถ้าเปลี่ยน env ต้อง trigger rebuild (NEXT_PUBLIC_ ถูก bake ตอน build)
 ```
 
-### Common Pitfall
-```
-NEXT_PUBLIC_WS_URL ถ้า set เป็น Cloudflare tunnel URL
-→ tunnel restart → URL เปลี่ยน → frontend ชี้ไป URL เก่า → OFFLINE ตลอด
-→ ทางแก้: ลบ env ออก ให้ใช้ Render URL เป็น default
-→ HLS URL จะมาจาก WebSocket data (dynamic, ไม่ต้อง hardcode)
-```
-
 ---
 
 ## Sigzy-Level Features Comparison
 
 | Feature | Sigzy | TechTrade | Status |
 |---|---|---|---|
-| HLS Streaming | Yes | Yes (VPS FFmpeg) | Code done, env not set |
-| Custom Video Player | Yes | N/A (chart, not video) | Not needed |
+| HLS Streaming | Yes | Yes (VPS FFmpeg 1280x720) | DONE |
+| PiP ลอยข้ามแอป (iOS Safari) | Yes | Yes (HLS video PiP) | DONE |
+| PiP ลอยข้ามแอป (Android) | Yes | Yes (native video PiP) | DONE |
+| PiP ลอยข้ามแอป (Desktop) | Yes | Yes (canvas captureStream) | DONE |
+| ซ่อนปุ่ม PiP (100%) | Yes (native app) | Partial (web limitation) | CSS+MediaSession ทำได้เท่าที่ web ทำได้ |
 | Lock Back Button | Yes | Yes (history.pushState) | DONE |
-| SPA (no reload) | Yes | Yes (Next.js) | DONE |
 | PWA (Add to Home Screen) | Yes | Yes (manifest.json) | DONE |
-| iOS PiP (float over apps) | Yes | HLS pre-load ready | Needs VPS env + Safari test |
 | Fullscreen (no address bar) | Yes | Yes (PWA standalone) | DONE |
+| Native App (iOS/Android) | Yes (มีทีหลัง) | No | ต้องทำถ้าจะซ่อน PiP controls 100% |
 
 ---
 
@@ -441,3 +488,4 @@ NEXT_PUBLIC_WS_URL ถ้า set เป็น Cloudflare tunnel URL
 - iOS Chrome ไม่รองรับ PiP API → ต้องใช้ Safari เท่านั้น
 - Cloudflare Quick Tunnel URL เปลี่ยนทุก restart → ใช้ Named Tunnel + domain แก้ปัญหา
 - `NEXT_PUBLIC_` env ถูก bake ตอน build → เปลี่ยนแล้วต้อง rebuild
+- PyCharm ไม่เห็น env ที่ set ใน PowerShell → hardcode default ใน code หรือใช้ .env file
