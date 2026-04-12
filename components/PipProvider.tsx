@@ -116,7 +116,7 @@ export function PipProvider({ children, wsUrl }: PipProviderProps) {
         setSymbolData(data.symbols)
       }
       if (data.countdown !== undefined) {
-        setGlobalCountdown(data.countdown)
+        setGlobalCountdown(data.stale ? 0 : data.countdown)
       }
       if (data.mode) {
         setDataMode(data.mode)
