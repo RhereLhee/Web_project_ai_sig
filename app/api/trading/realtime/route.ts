@@ -48,7 +48,7 @@ export async function GET() {
   // Return mock data if both fail
   return NextResponse.json({
     timestamp: new Date().toISOString(),
-    countdown: 299,
+    countdown: 0,
     mode: 'offline',
     symbols: {}
   })
