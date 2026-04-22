@@ -30,7 +30,7 @@ export default function RegisterForm() {
   const [countdown, setCountdown] = useState(0)
 
   // ============================================
-  // STEP 1: Submit Form → Send Email OTP
+  // STEP 1: Submit Form Send Email OTP
   // ============================================
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -77,7 +77,7 @@ export default function RegisterForm() {
   }
 
   // ============================================
-  // STEP 2: Verify OTP → Register
+  // STEP 2: Verify OTP Register
   // ============================================
   const handleVerifyOtp = async () => {
     if (otp.length !== 6) {
@@ -211,7 +211,7 @@ export default function RegisterForm() {
         <Background />
         <div className="relative z-10 w-full max-w-md">
           <div className="backdrop-blur-xl bg-white/10 border border-white/20 rounded-2xl p-8 shadow-2xl text-center">
-            <div className="text-6xl mb-4">🎉</div>
+            <div className="text-6xl mb-4"></div>
             <h1 className="text-2xl font-bold text-white mb-2">สมัครสมาชิกสำเร็จ!</h1>
             <p className="text-gray-400 mb-6">ยินดีต้อนรับสู่ TechTrade</p>
             <button
@@ -249,7 +249,7 @@ export default function RegisterForm() {
             <p className="text-gray-400 text-center mb-4">ยืนยันอีเมล</p>
 
             <div className="text-center mb-6">
-              <div className="text-4xl mb-3">📧</div>
+              <div className="text-4xl mb-3"></div>
               <p className="text-gray-300">
                 เราส่งรหัส OTP ไปที่<br />
                 <span className="font-semibold text-white">{formData.email}</span>
@@ -302,7 +302,7 @@ export default function RegisterForm() {
                 onClick={() => setStep('form')}
                 className="w-full text-sm text-gray-400 hover:text-gray-300 transition"
               >
-                ← ย้อนกลับ
+                ย้อนกลับ
               </button>
             </div>
           </div>

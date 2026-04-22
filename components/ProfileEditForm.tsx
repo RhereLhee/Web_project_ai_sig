@@ -129,7 +129,7 @@ export function ProfileEditForm({ isOpen, onClose, initialData, isPhoneLocked }:
           {/* Success Message */}
           {success && (
             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-600 text-sm">
-              ✓ {success}
+              {success}
             </div>
           )}
 
@@ -162,7 +162,7 @@ export function ProfileEditForm({ isOpen, onClose, initialData, isPhoneLocked }:
                 </div>
                 <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                   <div className="flex items-start space-x-2">
-                    <span className="text-yellow-600">🔒</span>
+                    <span className="text-yellow-600"></span>
                     <div>
                       <p className="text-sm font-medium text-yellow-800">เบอร์โทรถูกล็อค</p>
                       <p className="text-xs text-yellow-700 mt-1">

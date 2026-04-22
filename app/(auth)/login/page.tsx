@@ -1,6 +1,6 @@
 // app/(auth)/login/page.tsx
 // Login Page
-// - User ปกติ: Email + Password (ถ้าเครื่องใหม่ → Email OTP)
+// - User ปกติ: Email + Password (ถ้าเครื่องใหม่ Email OTP)
 // - Admin: Email + Password + TOTP
 
 "use client"
@@ -249,7 +249,7 @@ export default function LoginPage() {
             <p className="text-gray-400 text-center mb-4">ยืนยันเครื่องใหม่</p>
 
             <div className="text-center mb-6">
-              <div className="text-4xl mb-3">🔐</div>
+              <div className="text-4xl mb-3"></div>
               <p className="text-gray-300 mb-2">ตรวจพบการเข้าสู่ระบบจากเครื่องใหม่</p>
               {deviceInfo && (
                 <div className="bg-white/5 border border-white/10 rounded-lg p-3 text-sm text-gray-400">
@@ -312,7 +312,7 @@ export default function LoginPage() {
                 }}
                 className="text-sm text-gray-400 hover:text-gray-300 w-full text-center"
               >
-                ← ย้อนกลับ
+                ย้อนกลับ
               </button>
             </div>
           </div>
@@ -344,7 +344,7 @@ export default function LoginPage() {
             <p className="text-gray-400 text-center mb-4">ยืนยันตัวตน 2 ขั้นตอน</p>
 
             <div className="text-center mb-6">
-              <div className="text-4xl mb-3">🔑</div>
+              <div className="text-4xl mb-3"></div>
               <p className="text-gray-300">
                 กรุณากรอกรหัส OTP จาก<br />
                 <span className="font-semibold text-white">Google Authenticator</span>
@@ -386,7 +386,7 @@ export default function LoginPage() {
                 }}
                 className="text-sm text-gray-400 hover:text-gray-300 w-full text-center"
               >
-                ← ย้อนกลับ
+                ย้อนกลับ
               </button>
             </div>
           </div>

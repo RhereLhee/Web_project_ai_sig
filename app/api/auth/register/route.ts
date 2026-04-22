@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     const otpRecord = await prisma.otpVerification.findFirst({
       where: {
         id: verificationToken,
-        phone: normalizedEmail,  // ✅ แก้จาก formattedPhone เป็น normalizedEmail
+        phone: normalizedEmail,  // แก้จาก formattedPhone เป็น normalizedEmail
         type: 'REGISTER',
         verified: true,
       },

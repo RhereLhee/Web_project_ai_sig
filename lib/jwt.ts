@@ -100,7 +100,7 @@ export async function setAuthCookies(accessToken: string, refreshToken: string) 
   
   // Access Token - httpOnly สำหรับความปลอดภัย
   cookieStore.set('access_token', accessToken, {
-    httpOnly: true,  // ✅ เปลี่ยนเป็น true - ป้องกัน XSS
+    httpOnly: true,  // เปลี่ยนเป็น true - ป้องกัน XSS
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     maxAge: 15 * 60,  // 15 นาที

@@ -119,10 +119,10 @@ export default async function ProfilePage() {
             <p className="text-gray-600 mb-1">{user.email}</p>
             {user.phone && (
               <p className="text-gray-500 text-sm flex items-center">
-                📱 {displayPhone}
+                {displayPhone}
                 {isPhoneLocked && (
                   <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
-                    🔒 ล็อค
+                    ล็อค
                   </span>
                 )}
               </p>
@@ -195,7 +195,7 @@ export default async function ProfilePage() {
               </p>
             ) : !hasSignal ? (
               <Link href="/signals" className="inline-block mt-2 text-sm font-medium text-emerald-600 hover:text-emerald-700">
-                ซื้อ Signal →
+                ซื้อ Signal 
               </Link>
             ) : null}
           </div>
@@ -220,7 +220,7 @@ export default async function ProfilePage() {
               </p>
             ) : !hasSub ? (
               <Link href="/partner" className="inline-block mt-2 text-sm font-medium text-purple-600 hover:text-purple-700">
-                สมัคร Partner →
+                สมัคร Partner 
               </Link>
             ) : null}
           </div>

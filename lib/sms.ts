@@ -160,9 +160,9 @@ async function sendViaTwilio(phone: string, message: string): Promise<SendSMSRes
 
 async function sendViaMock(phone: string, message: string): Promise<SendSMSResult> {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-  console.log('📱 MOCK SMS')
-  console.log(`📞 To: ${phone}`)
-  console.log(`📝 Message: ${message}`)
+  console.log('MOCK SMS')
+  console.log(`To: ${phone}`)
+  console.log(`Message: ${message}`)
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
   
   return { success: true, messageId: `mock-${Date.now()}` }

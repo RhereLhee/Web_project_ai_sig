@@ -81,7 +81,7 @@ export default function AdminSettingsPage() {
         setQrCodeUri("")
         setSecret("")
         setOtpCode("")
-        setMessage("✅ เปิดใช้งาน 2FA เรียบร้อยแล้ว!")
+        setMessage("เปิดใช้งาน 2FA เรียบร้อยแล้ว!")
       } else {
         setError(data.error || "รหัส OTP ไม่ถูกต้อง")
       }
@@ -112,7 +112,7 @@ export default function AdminSettingsPage() {
 
       if (res.ok && data.success) {
         setTwoFactorEnabled(false)
-        setMessage("✅ ปิด 2FA เรียบร้อยแล้ว")
+        setMessage("ปิด 2FA เรียบร้อยแล้ว")
       } else {
         setError(data.error || "รหัส OTP ไม่ถูกต้อง")
       }
@@ -133,7 +133,7 @@ export default function AdminSettingsPage() {
     <div className="max-w-2xl mx-auto space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">⚙️ ตั้งค่า Admin</h1>
+        <h1 className="text-2xl font-bold text-gray-900">ตั้งค่า Admin</h1>
         <p className="text-gray-500">จัดการความปลอดภัยบัญชี</p>
       </div>
 
@@ -142,7 +142,7 @@ export default function AdminSettingsPage() {
         <div className="flex items-start justify-between mb-4">
           <div>
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              🔐 Two-Factor Authentication (2FA)
+              Two-Factor Authentication (2FA)
             </h2>
             <p className="text-sm text-gray-500 mt-1">
               เพิ่มความปลอดภัยด้วยการยืนยันตัวตน 2 ชั้น
@@ -274,7 +274,7 @@ export default function AdminSettingsPage() {
                   onClick={handleStartSetup}
                   className="w-full px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
                 >
-                  🔐 เปิดใช้งาน 2FA
+                  เปิดใช้งาน 2FA
                 </button>
               </div>
             )}
@@ -284,7 +284,7 @@ export default function AdminSettingsPage() {
 
       {/* Info Box */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h3 className="font-medium text-blue-800 mb-2">💡 วิธีใช้งาน 2FA</h3>
+        <h3 className="font-medium text-blue-800 mb-2">วิธีใช้งาน 2FA</h3>
         <ol className="text-sm text-blue-700 space-y-1 list-decimal list-inside">
           <li>ดาวน์โหลด Google Authenticator หรือ Authy บนมือถือ</li>
           <li>กดปุ่ม "เปิดใช้งาน 2FA" แล้ว Scan QR Code</li>

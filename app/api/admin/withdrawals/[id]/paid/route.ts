@@ -78,7 +78,7 @@ export async function POST(
           date: paidAt,
           paymentRef,
         })
-        console.log(`📧 Sent paid email to ${withdrawal.user.email}`)
+        console.log(`Sent paid email to ${withdrawal.user.email}`)
       } catch (emailError) {
         console.error('Failed to send paid email:', emailError)
       }

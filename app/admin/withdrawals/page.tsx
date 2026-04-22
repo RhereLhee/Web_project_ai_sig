@@ -103,7 +103,7 @@ export default async function AdminWithdrawalsPage({ searchParams }: Props) {
                           href={`mailto:${w.user.email}`}
                           className="text-xs text-blue-600 hover:underline block"
                         >
-                          📧 {w.user.email}
+                          {w.user.email}
                         </a>
                       )}
                       {w.phone && (
@@ -111,7 +111,7 @@ export default async function AdminWithdrawalsPage({ searchParams }: Props) {
                           href={`tel:${w.phone}`}
                           className="text-xs text-emerald-600 hover:underline block font-mono"
                         >
-                          📱 {w.phone.replace(/(\d{2})(\d{3})(\d{3})(\d{4})/, '+$1 $2-$3-$4')}
+                          {w.phone.replace(/(\d{2})(\d{3})(\d{3})(\d{4})/, '+$1 $2-$3-$4')}
                         </a>
                       )}
                     </div>

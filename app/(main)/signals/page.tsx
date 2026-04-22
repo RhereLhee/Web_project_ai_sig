@@ -73,7 +73,7 @@ export default async function SignalsPage() {
   const hasReferral = !!fullUser?.referredById
 
   // ============================================
-  // ถ้ายังไม่มี Signal → แสดงหน้าซื้อแพ็คเกจ
+  // ถ้ายังไม่มี Signal แสดงหน้าซื้อแพ็คเกจ
   // ============================================
   if (!hasSignal) {
     return (
@@ -123,7 +123,7 @@ export default async function SignalsPage() {
   }
 
   // ============================================
-  // ถ้ามี Signal แล้ว → แสดง Signal Room (ครอบ PipProvider ให้แน่ใจ)
+  // ถ้ามี Signal แล้ว แสดง Signal Room (ครอบ PipProvider ให้แน่ใจ)
   // ============================================
   return <SignalRoomWithProvider user={user as any} />
 }

@@ -188,7 +188,7 @@ export async function POST(req: NextRequest) {
           data: {
             withdrawnAmount: newWithdrawnAmount,
             withdrawalId: withdrawal.id,
-            // ถ้าถอนหมดแล้ว → status = FULLY_WITHDRAWN
+            // ถ้าถอนหมดแล้ว status = FULLY_WITHDRAWN
             status: newWithdrawnAmount >= comm.amount ? 'FULLY_WITHDRAWN' : 'AVAILABLE',
           },
         })

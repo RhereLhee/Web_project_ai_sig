@@ -32,7 +32,7 @@ export default async function AdminSignalsPage() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">🎛️ จัดการ AI Signal</h1>
+          <h1 className="text-2xl font-bold text-gray-900">จัดการ AI Signal</h1>
           <p className="text-gray-500">ควบคุม Signal และ Retrain Model</p>
         </div>
       </div>
@@ -61,7 +61,7 @@ export default async function AdminSignalsPage() {
 
       {/* Info Box */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h2 className="font-semibold text-blue-800 mb-2">ℹ️ วิธีใช้งาน</h2>
+        <h2 className="font-semibold text-blue-800 mb-2">วิธีใช้งาน</h2>
         <ul className="text-sm text-blue-700 space-y-1">
           <li>• <strong>ปิด Signal</strong> = หยุดส่ง Signal ของคู่เงินนั้นไปยัง Users</li>
           <li>• <strong>Retrain</strong> = ส่งคำสั่งให้ VPS เทรน Model ใหม่ (ใช้เวลา ~10-30 นาที)</li>

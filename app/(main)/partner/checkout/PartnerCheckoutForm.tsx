@@ -329,7 +329,7 @@ export function PartnerCheckoutForm({ userId, months, bonus, price }: PartnerChe
             onClick={() => setStep('upload')}
             className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-semibold transition-colors"
           >
-            ชำระเงินแล้ว → ส่งหลักฐาน
+            ชำระเงินแล้ว ส่งหลักฐาน
           </button>
 
           <p className="text-xs text-gray-400 text-center mt-2">
@@ -442,7 +442,7 @@ export function PartnerCheckoutForm({ userId, months, bonus, price }: PartnerChe
           className="w-full mt-4 py-2 text-gray-600 hover:text-gray-800 text-sm"
           disabled={uploading}
         >
-          ← กลับไปดู QR Code
+          กลับไปดู QR Code
         </button>
       </div>
     )

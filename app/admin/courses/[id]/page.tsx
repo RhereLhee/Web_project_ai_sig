@@ -37,7 +37,7 @@ export default async function EditCoursePage({ params }: Props) {
           <p className="text-gray-500 text-sm mt-1">{course.title}</p>
         </div>
         <Link href="/admin/courses" className="text-gray-500 hover:text-gray-700">
-          ← กลับ
+          กลับ
         </Link>
       </div>
 
@@ -50,7 +50,7 @@ export default async function EditCoursePage({ params }: Props) {
         {/* Course Info */}
         <div className="space-y-4">
           <div className="bg-white rounded-lg border p-4">
-            <h3 className="font-semibold text-gray-900 mb-3">📊 ข้อมูลคอร์ส</h3>
+            <h3 className="font-semibold text-gray-900 mb-3">ข้อมูลคอร์ส</h3>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-500">Slug</span>
@@ -78,7 +78,7 @@ export default async function EditCoursePage({ params }: Props) {
           </div>
 
           <div className="bg-white rounded-lg border p-4">
-            <h3 className="font-semibold text-gray-900 mb-3">📚 Sections</h3>
+            <h3 className="font-semibold text-gray-900 mb-3">Sections</h3>
             {course.sections.length > 0 ? (
               <div className="space-y-2">
                 {course.sections.map((section, index) => (
@@ -96,7 +96,7 @@ export default async function EditCoursePage({ params }: Props) {
               href={`/admin/courses/${course.id}/sections`}
               className="block mt-3 text-center text-sm text-emerald-600 hover:underline"
             >
-              จัดการ Sections →
+              จัดการ Sections 
             </Link>
           </div>
         </div>

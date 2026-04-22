@@ -73,7 +73,7 @@ export function WithdrawalModal({ onClose }: WithdrawalModalProps) {
     }
   }
 
-  // Handle form submit → go to OTP
+  // Handle form submit go to OTP
   const handleFormSubmit = () => {
     setError("")
 

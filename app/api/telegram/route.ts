@@ -37,7 +37,7 @@ export async function GET() {
     console.log('\n========================================')
     console.log('=== TELEGRAM API DEBUG ===')
     console.log('========================================')
-    console.log('Bot Token:', botToken ? '✓ Present' : '✗ Missing')
+    console.log('Bot Token:', botToken ? 'Present' : 'Missing')
     console.log('Channel:', `@${channelUsername}`)
     console.log('Time:', new Date().toISOString())
 
@@ -60,7 +60,7 @@ export async function GET() {
 
     if (!chatResponse.ok) {
       const errorText = await chatResponse.text()
-      console.error('❌ Channel not accessible')
+      console.error('Channel not accessible')
       console.error('Error:', errorText)
       
       return NextResponse.json(
@@ -74,7 +74,7 @@ export async function GET() {
     }
 
     const chatData = await chatResponse.json()
-    console.log('✓ Channel found:')
+    console.log('Channel found:')
     console.log('  Title:', chatData.result?.title)
     console.log('  Type:', chatData.result?.type)
     console.log('  ID:', chatData.result?.id)
@@ -94,19 +94,19 @@ export async function GET() {
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('❌ Updates API error:', errorText)
+      console.error('Updates API error:', errorText)
       throw new Error(`Telegram API error: ${response.status}`)
     }
 
     const data: TelegramResponse = await response.json()
 
-    console.log('✓ Updates received:', data.result?.length || 0)
+    console.log('Updates received:', data.result?.length || 0)
 
     // Step 3: Debug all updates
     console.log('\n--- Step 3: Inspect all updates ---')
     
     if (!data.result || data.result.length === 0) {
-      console.log('⚠️  ZERO updates!')
+      console.log(' ZERO updates!')
       console.log('Possible reasons:')
       console.log('1. Bot has already processed all updates (offset issue)')
       console.log('2. No messages sent to bot yet')
@@ -143,9 +143,9 @@ export async function GET() {
       console.log('  Chat ID:', msg?.chat?.id)
       console.log('  Chat Type:', msg?.chat?.type)
       console.log('  Text:', msg?.text?.substring(0, 100))
-      console.log('  Has TRADE keyword?', msg?.text?.includes('TRADE') ? '✓ YES' : '✗ NO')
-      console.log('  Has WIN keyword?', msg?.text?.includes('WIN') ? '✓ YES' : '✗ NO')
-      console.log('  Has LOSS keyword?', msg?.text?.includes('LOSS') ? '✓ YES' : '✗ NO')
+      console.log('  Has TRADE keyword?', msg?.text?.includes('TRADE') ? 'YES' : 'NO')
+      console.log('  Has WIN keyword?', msg?.text?.includes('WIN') ? 'YES' : 'NO')
+      console.log('  Has LOSS keyword?', msg?.text?.includes('LOSS') ? 'YES' : 'NO')
     })
 
     // Step 4: Parse all messages
@@ -179,9 +179,9 @@ export async function GET() {
       .map((msg) => {
         const parsed = parseSignalMessage(msg)
         if (parsed) {
-          console.log('✓ Parsed successfully:', parsed.pair, parsed.type, 'Level', parsed.level)
+          console.log('Parsed successfully:', parsed.pair, parsed.type, 'Level', parsed.level)
         } else {
-          console.log('✗ Parse failed for:', msg.text?.substring(0, 50))
+          console.log('Parse failed for:', msg.text?.substring(0, 50))
         }
         return parsed
       })
@@ -210,7 +210,7 @@ export async function GET() {
       }
     })
   } catch (error) {
-    console.error('\n❌ FATAL ERROR ❌')
+    console.error('\nFATAL ERROR ')
     console.error(error)
     console.error('========================================\n')
     

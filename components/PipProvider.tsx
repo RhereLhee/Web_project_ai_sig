@@ -54,11 +54,11 @@ export function PipProvider({ children, wsUrl }: PipProviderProps) {
   const [isPipActive, setIsPipActive] = useState(false)
   const [isPipSupported, setIsPipSupported] = useState(false)
 
-  // ✅ Sound Alert: track active signals เพื่อตรวจจับ signal ใหม่
+  // Sound Alert: track active signals เพื่อตรวจจับ signal ใหม่
   const prevSignalsRef = useRef<Record<string, string | null>>({})
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
-  // ✅ Sound Alert: สร้าง Audio element ครั้งเดียว
+  // Sound Alert: สร้าง Audio element ครั้งเดียว
   useEffect(() => {
     if (typeof window !== 'undefined') {
       audioRef.current = new Audio('/signal_alert.wav')
@@ -66,7 +66,7 @@ export function PipProvider({ children, wsUrl }: PipProviderProps) {
     }
   }, [])
 
-  // ✅ Sound Alert: เล่นเสียงเมื่อมี signal ใหม่
+  // Sound Alert: เล่นเสียงเมื่อมี signal ใหม่
   const playSignalAlert = useCallback(() => {
     try {
       if (audioRef.current) {
@@ -80,7 +80,7 @@ export function PipProvider({ children, wsUrl }: PipProviderProps) {
     }
   }, [])
 
-  // ✅ Sound Alert: ตรวจจับ signal ใหม่
+  // Sound Alert: ตรวจจับ signal ใหม่
   const checkForNewSignals = useCallback((newData: Record<string, any>) => {
     const prevSignals = prevSignalsRef.current
 
@@ -92,7 +92,7 @@ export function PipProvider({ children, wsUrl }: PipProviderProps) {
 
       const prevSignalKey = prevSignals[symbol] || null
 
-      // ถ้ามี signal ใหม่ที่ไม่เคยเห็น → เล่นเสียง
+      // ถ้ามี signal ใหม่ที่ไม่เคยเห็น เล่นเสียง
       if (currentSignalKey && currentSignalKey !== prevSignalKey) {
         playSignalAlert()
       }
@@ -111,7 +111,7 @@ export function PipProvider({ children, wsUrl }: PipProviderProps) {
     // Subscribe to data updates
     const unsubscribeData = signalService.onData((data) => {
       if (data.symbols) {
-        // ✅ Sound Alert: เช็ค signal ใหม่ก่อน update state
+        // Sound Alert: เช็ค signal ใหม่ก่อน update state
         checkForNewSignals(data.symbols)
         setSymbolData(data.symbols)
       }
@@ -152,7 +152,7 @@ export function PipProvider({ children, wsUrl }: PipProviderProps) {
 
   // Countdown อิงจาก MT5 ตรงๆ — ไม่นับเอง
   // ค่า countdown มาจาก WebSocket data ทุก ~1 วินาที (signalService.onData)
-  // เมื่อตลาดปิด MT5 หยุดส่ง → countdown หยุดตาม
+  // เมื่อตลาดปิด MT5 หยุดส่ง countdown หยุดตาม
 
   // Toggle PiP
   const togglePip = useCallback(async () => {

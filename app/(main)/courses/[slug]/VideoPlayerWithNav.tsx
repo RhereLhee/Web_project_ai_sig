@@ -106,12 +106,12 @@ export function VideoPlayerWithNav({
               href={`/courses/${courseSlug}?video=${prevVideo.id}`}
               className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
             >
-              <span>◀</span>
+              <span></span>
               <span className="text-sm">ก่อนหน้า</span>
             </Link>
           ) : (
             <div className="px-4 py-2 text-gray-300 rounded-lg">
-              <span className="text-sm">◀ ก่อนหน้า</span>
+              <span className="text-sm">ก่อนหน้า</span>
             </div>
           )}
 
@@ -125,7 +125,7 @@ export function VideoPlayerWithNav({
                 : 'bg-emerald-500 hover:bg-emerald-600 text-white'
             }`}
           >
-            {isCompleted ? '✓ ดูจบแล้ว' : loading ? 'กำลังบันทึก...' : '✓ ทำเครื่องหมายว่าดูจบ'}
+            {isCompleted ? 'ดูจบแล้ว' : loading ? 'กำลังบันทึก...' : 'ทำเครื่องหมายว่าดูจบ'}
           </button>
 
           {/* Next */}
@@ -135,11 +135,11 @@ export function VideoPlayerWithNav({
               className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors"
             >
               <span className="text-sm">ถัดไป</span>
-              <span>▶</span>
+              <span></span>
             </Link>
           ) : (
             <div className="px-4 py-2 text-gray-300 rounded-lg">
-              <span className="text-sm">ถัดไป ▶</span>
+              <span className="text-sm">ถัดไป </span>
             </div>
           )}
         </div>
@@ -169,7 +169,7 @@ export function VideoPlayerWithNav({
         {/* Course Complete */}
         {!nextVideo && isCompleted && (
           <div className="p-4 bg-emerald-50 rounded-lg text-center">
-            <span className="text-2xl">🎉</span>
+            <span className="text-2xl"></span>
             <p className="font-medium text-emerald-800 mt-2">ยินดีด้วย! คุณดูจบคอร์สแล้ว</p>
             <Link
               href="/courses"

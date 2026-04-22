@@ -13,7 +13,14 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
-      "Bash(ls -la /c/projectP4/techtrade/app/\\\\\\(main\\\\\\)/signals/)"
+      "Bash(ls -la /c/projectP4/techtrade/app/\\\\\\(main\\\\\\)/signals/)",
+      "Bash(node scripts/strip-emojis.js)",
+      "Bash(rm scripts/strip-emojis.js)",
+      "Bash(rmdir scripts *)",
+      "Bash(curl -sS --max-time 8 \"https://england-flu-speed-regime.trycloudflare.com/api/realtime/all\" -o /tmp/tunnel_test.json -w \"HTTP %{http_code}\\\\n\")",
+      "Read(//tmp/**)",
+      "Bash(curl -sS --max-time 8 \"https://loves-right-closest-boston.trycloudflare.com/api/realtime/all\" -o /tmp/tunnel_test.json -w \"HTTP %{http_code}\\\\n\")",
+      "Bash(rm -f scripts/strip-emojis.js)"
     ]
   }
 }

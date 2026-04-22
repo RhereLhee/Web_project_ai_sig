@@ -27,11 +27,13 @@ export function SignalControlCard({ data }: SignalControlCardProps) {
   const [loading, setLoading] = useState(false)
   const [retraining, setRetraining] = useState(false)
   const [message, setMessage] = useState("")
+  const [messageType, setMessageType] = useState<'success' | 'info' | 'error' | null>(null)
 
   const handleToggle = async () => {
     setLoading(true)
     setMessage("")
-    
+    setMessageType(null)
+
     try {
       const res = await fetch('/api/trading/symbols', {
         method: 'PUT',
@@ -44,15 +46,21 @@ export function SignalControlCard({ data }: SignalControlCardProps) {
 
       if (res.ok) {
         setEnabled(!enabled)
-        setMessage(enabled ? '❌ ปิด Signal แล้ว' : '✅ เปิด Signal แล้ว')
+        setMessage(enabled ? 'ปิด Signal แล้ว' : 'เปิด Signal แล้ว')
+        setMessageType(enabled ? 'error' : 'success')
       } else {
-        setMessage('⚠️ ไม่สามารถเปลี่ยนสถานะได้')
+        setMessage('ไม่สามารถเปลี่ยนสถานะได้')
+        setMessageType('info')
       }
     } catch (error) {
-      setMessage('⚠️ เกิดข้อผิดพลาด')
+      setMessage('เกิดข้อผิดพลาด')
+      setMessageType('info')
     } finally {
       setLoading(false)
-      setTimeout(() => setMessage(""), 3000)
+      setTimeout(() => {
+        setMessage("")
+        setMessageType(null)
+      }, 3000)
     }
   }
 
@@ -63,6 +71,7 @@ export function SignalControlCard({ data }: SignalControlCardProps) {
 
     setRetraining(true)
     setMessage("")
+    setMessageType(null)
 
     try {
       const res = await fetch('/api/trading/retrain', {
@@ -74,18 +83,21 @@ export function SignalControlCard({ data }: SignalControlCardProps) {
       const result = await res.json()
 
       if (res.ok && result.success) {
-        setMessage(`🔄 เริ่ม Retrain ${data.symbol} แล้ว`)
+        setMessage(`เริ่ม Retrain ${data.symbol} แล้ว`)
+        setMessageType('info')
         // Keep animation for 5 seconds to show progress
         setTimeout(() => {
           setRetraining(false)
         }, 5000)
       } else {
         setRetraining(false)
-        setMessage(`⚠️ ${result.error || 'ไม่สามารถส่งคำสั่ง Retrain ได้'}`)
+        setMessage(`${result.error || 'ไม่สามารถส่งคำสั่ง Retrain ได้'}`)
+        setMessageType('info')
       }
     } catch (error) {
       setRetraining(false)
-      setMessage('⚠️ ไม่สามารถเชื่อมต่อ Server ได้')
+      setMessage('ไม่สามารถเชื่อมต่อ Server ได้')
+      setMessageType('info')
     }
   }
 
@@ -284,16 +296,16 @@ export function SignalControlCard({ data }: SignalControlCardProps) {
               : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
           } ${(loading || retraining) ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
-          {enabled ? '🔴 ปิด Signal' : '🟢 เปิด Signal'}
+          {enabled ? 'ปิด Signal' : 'เปิด Signal'}
         </button>
       </div>
 
       {/* Status Message */}
       {message && (
         <div className={`mt-3 p-2 rounded-lg text-sm text-center ${
-          message.includes('✅') || message.includes('🔄') 
-            ? 'bg-emerald-50 text-emerald-700' 
-            : message.includes('❌')
+          messageType === 'success' || messageType === 'info'
+            ? 'bg-emerald-50 text-emerald-700'
+            : messageType === 'error'
             ? 'bg-red-50 text-red-700'
             : 'bg-yellow-50 text-yellow-700'
         }`}>
@@ -305,7 +317,7 @@ export function SignalControlCard({ data }: SignalControlCardProps) {
       {!enabled && !retraining && (
         <div className="mt-3 p-2 bg-yellow-50 rounded-lg">
           <p className="text-xs text-yellow-700 text-center">
-            ⚠️ Signal ถูกปิด - ไม่แสดงในหน้า Signal Room
+            Signal ถูกปิด - ไม่แสดงในหน้า Signal Room
           </p>
         </div>
       )}

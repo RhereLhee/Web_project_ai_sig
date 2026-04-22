@@ -22,6 +22,7 @@ export function EditCourseForm({ course }: Props) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState("")
+  const [messageType, setMessageType] = useState<'success' | 'error' | null>(null)
   const [formData, setFormData] = useState({
     title: course.title,
     description: course.description || '',
@@ -35,6 +36,7 @@ export function EditCourseForm({ course }: Props) {
     e.preventDefault()
     setLoading(true)
     setMessage("")
+    setMessageType(null)
 
     try {
       const res = await fetch(`/api/admin/courses/${course.id}`, {
@@ -46,22 +48,28 @@ export function EditCourseForm({ course }: Props) {
       const data = await res.json()
 
       if (res.ok) {
-        setMessage("✅ บันทึกสำเร็จ")
+        setMessage("บันทึกสำเร็จ")
+        setMessageType('success')
         router.refresh()
       } else {
-        setMessage(`⚠️ ${data.error || 'เกิดข้อผิดพลาด'}`)
+        setMessage(`${data.error || 'เกิดข้อผิดพลาด'}`)
+        setMessageType('error')
       }
     } catch {
-      setMessage("⚠️ เกิดข้อผิดพลาด")
+      setMessage("เกิดข้อผิดพลาด")
+      setMessageType('error')
     } finally {
       setLoading(false)
-      setTimeout(() => setMessage(""), 3000)
+      setTimeout(() => {
+        setMessage("")
+        setMessageType(null)
+      }, 3000)
     }
   }
 
   return (
     <form onSubmit={handleSubmit} className="bg-white rounded-lg border p-6 space-y-4">
-      <h2 className="text-lg font-semibold text-gray-900 mb-4">📝 แก้ไขข้อมูลคอร์ส</h2>
+      <h2 className="text-lg font-semibold text-gray-900 mb-4">แก้ไขข้อมูลคอร์ส</h2>
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -150,8 +158,8 @@ export function EditCourseForm({ course }: Props) {
       {/* Status Message */}
       {message && (
         <div className={`p-3 rounded-lg text-sm ${
-          message.includes('✅') 
-            ? 'bg-emerald-50 text-emerald-700' 
+          messageType === 'success'
+            ? 'bg-emerald-50 text-emerald-700'
             : 'bg-yellow-50 text-yellow-700'
         }`}>
           {message}
@@ -165,7 +173,7 @@ export function EditCourseForm({ course }: Props) {
           disabled={loading}
           className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? 'กำลังบันทึก...' : '💾 บันทึกการเปลี่ยนแปลง'}
+          {loading ? 'กำลังบันทึก...' : 'บันทึกการเปลี่ยนแปลง'}
         </button>
       </div>
     </form>
