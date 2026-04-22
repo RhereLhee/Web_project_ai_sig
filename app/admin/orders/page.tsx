@@ -170,7 +170,7 @@ export default async function AdminOrdersPage({ searchParams }: Props) {
                 {order.status === 'PENDING' && !order.slipUrl && (
                   <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-3">
                     <p className="text-sm text-yellow-700">
-                      ⚠️ ยังไม่ได้อัพโหลดหลักฐานการโอนเงิน
+                      ยังไม่ได้อัพโหลดหลักฐานการโอนเงิน
                     </p>
                   </div>
                 )}
@@ -184,7 +184,7 @@ export default async function AdminOrdersPage({ searchParams }: Props) {
                     <span className="text-sm text-gray-400">รอลูกค้าอัพโหลดสลิป</span>
                   )}
                   {order.status === 'PAID' && (
-                    <span className="text-sm text-emerald-600 font-medium">✅ อนุมัติแล้ว</span>
+                    <span className="text-sm text-emerald-600 font-medium">อนุมัติแล้ว</span>
                   )}
                 </div>
               </div>

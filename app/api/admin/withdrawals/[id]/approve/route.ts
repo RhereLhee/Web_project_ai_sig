@@ -23,7 +23,7 @@ export async function POST(
       return NextResponse.json({ error: 'รายการนี้ไม่อยู่ในสถานะรอดำเนินการ' }, { status: 400 })
     }
 
-    // แค่เปลี่ยน status withdrawal → APPROVED
+    // แค่เปลี่ยน status withdrawal APPROVED
     // Commission ยังคง status = HOLDING อยู่
     await prisma.withdrawal.update({
       where: { id },

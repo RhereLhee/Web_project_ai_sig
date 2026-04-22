@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * 📦 Export Project Structure for AI
+ * Export Project Structure for AI
  * สร้างไฟล์โครงสร้างโปรเจคที่พร้อมส่งให้ AI วิเคราะห์
  */
 
 const fs = require('fs');
 const path = require('path');
 
-// ⚙️ การตั้งค่า
+// การตั้งค่า
 const CONFIG = {
   // โฟลเดอร์/ไฟล์ที่ข้าม
   ignore: new Set([
@@ -114,7 +114,7 @@ function buildTree(dirPath, prefix = '', isLast = true, lines = []) {
     const stat = fs.statSync(dirPath);
     
     if (stat.isDirectory()) {
-      lines.push(`${prefix}${connector}📁 ${name}/`);
+      lines.push(`${prefix}${connector}${name}/`);
       
       const newPrefix = prefix + (isLast ? '    ' : '│   ');
       
@@ -144,18 +144,18 @@ function buildTree(dirPath, prefix = '', isLast = true, lines = []) {
     } else {
       // ไฟล์
       const ext = path.extname(name);
-      let icon = '📄';
+      let icon = '';
       
-      if (['.tsx', '.jsx'].includes(ext)) icon = '⚛️';
-      else if (['.ts', '.js'].includes(ext)) icon = '📘';
-      else if (['.css', '.scss'].includes(ext)) icon = '🎨';
-      else if (ext === '.json') icon = '📋';
-      else if (ext === '.prisma') icon = '🗄️';
-      else if (ext === '.md') icon = '📝';
+      if (['.tsx', '.jsx'].includes(ext)) icon = '';
+      else if (['.ts', '.js'].includes(ext)) icon = '';
+      else if (['.css', '.scss'].includes(ext)) icon = '';
+      else if (ext === '.json') icon = '';
+      else if (ext === '.prisma') icon = '';
+      else if (ext === '.md') icon = '';
       
       const marker = CONFIG.specialFiles.has(name) || 
                      CONFIG.specialFiles.has(path.relative(path.dirname(dirPath), dirPath) + '/' + name)
-                     ? ' ⭐' : '';
+                     ? ' ' : '';
       
       lines.push(`${prefix}${connector}${icon} ${name}${marker}`);
     }
@@ -177,17 +177,17 @@ function generateOutput(projectPath) {
   
   // Header
   output += '━'.repeat(80) + '\n';
-  output += `📦 PROJECT STRUCTURE: ${projectName}\n`;
+  output += `PROJECT STRUCTURE: ${projectName}\n`;
   output += '━'.repeat(80) + '\n\n';
   
   // สถิติ
-  output += '📊 STATISTICS:\n';
+  output += 'STATISTICS:\n';
   output += `   • Total Files: ${stats.files}\n`;
   output += `   • Total Folders: ${stats.dirs}\n`;
   output += '\n';
   
   // แยกตามประเภทไฟล์
-  output += '📁 FILES BY TYPE:\n';
+  output += 'FILES BY TYPE:\n';
   const sortedExts = Object.entries(stats.byExt)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10);
@@ -199,11 +199,11 @@ function generateOutput(projectPath) {
   output += '\n';
   
   output += '━'.repeat(80) + '\n';
-  output += '🌲 PROJECT TREE:\n';
+  output += 'PROJECT TREE:\n';
   output += '━'.repeat(80) + '\n\n';
   
   // Tree structure
-  output += `📁 ${projectName}/\n`;
+  output += `${projectName}/\n`;
   
   try {
     const items = fs.readdirSync(projectPath)
@@ -230,7 +230,7 @@ function generateOutput(projectPath) {
   }
   
   output += '\n' + '━'.repeat(80) + '\n';
-  output += '⭐ = Important configuration files\n';
+  output += '= Important configuration files\n';
   output += '━'.repeat(80) + '\n';
   
   return output;
@@ -244,16 +244,16 @@ function main() {
   const projectPath = args[0] ? path.resolve(args[0]) : process.cwd();
   
   if (!fs.existsSync(projectPath)) {
-    console.error(`❌ Error: Directory not found: ${projectPath}`);
+    console.error(`Error: Directory not found: ${projectPath}`);
     process.exit(1);
   }
   
   if (!fs.statSync(projectPath).isDirectory()) {
-    console.error(`❌ Error: Path is not a directory: ${projectPath}`);
+    console.error(`Error: Path is not a directory: ${projectPath}`);
     process.exit(1);
   }
   
-  console.log('🔍 Scanning project structure...\n');
+  console.log('Scanning project structure...\n');
   
   const output = generateOutput(projectPath);
   
@@ -264,8 +264,8 @@ function main() {
   fs.writeFileSync(outputPath, output, 'utf8');
   
   console.log(output);
-  console.log(`\n✅ Saved to: ${outputPath}`);
-  console.log('\n💡 TIP: Copy this file content and send it to AI for analysis!');
+  console.log(`\nSaved to: ${outputPath}`);
+  console.log('\nTIP: Copy this file content and send it to AI for analysis!');
 }
 
 // Run

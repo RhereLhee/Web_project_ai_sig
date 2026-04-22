@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next'
-import './globals.css'  // ← globals.css อยู่ที่นี่
+import './globals.css'  // globals.css อยู่ที่นี่
 
 export const metadata: Metadata = {
   title: 'TechTrade',

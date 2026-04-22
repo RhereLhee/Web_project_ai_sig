@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     
     console.log('========================================')
-    console.log('🔍 OTP VERIFY DEBUG - START')
+    console.log('OTP VERIFY DEBUG - START')
     console.log('========================================')
     console.log('1. RAW REQUEST BODY:', JSON.stringify(body, null, 2))
     
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     console.log('   - type:', type)
 
     if (!phone || !code) {
-      console.log('❌ ERROR: Missing phone or code')
+      console.log('ERROR: Missing phone or code')
       return NextResponse.json(
         { error: 'กรุณากรอกข้อมูลให้ครบ' },
         { status: 400 }
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     console.log('6. QUERY RESULT:', otpRecord ? JSON.stringify(otpRecord, null, 2) : 'NULL - NOT FOUND')
 
     if (!otpRecord) {
-      console.log('❌ ERROR: OTP record not found')
+      console.log('ERROR: OTP record not found')
       console.log('========================================')
       return NextResponse.json(
         { error: 'ไม่พบรหัส OTP กรุณาขอรหัสใหม่' },
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
 
     if (new Date() > otpRecord.expiresAt) {
       await prisma.otpVerification.delete({ where: { id: otpRecord.id } })
-      console.log('❌ ERROR: OTP expired')
+      console.log('ERROR: OTP expired')
       console.log('========================================')
       return NextResponse.json(
         { error: 'รหัส OTP หมดอายุ กรุณาขอรหัสใหม่' },
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
 
     if (otpRecord.attempts >= 5) {
       await prisma.otpVerification.delete({ where: { id: otpRecord.id } })
-      console.log('❌ ERROR: Too many attempts')
+      console.log('ERROR: Too many attempts')
       console.log('========================================')
       return NextResponse.json(
         { error: 'ลองผิดหลายครั้งเกินไป กรุณาขอรหัสใหม่' },
@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
         data: { attempts: { increment: 1 } },
       })
       const remaining = 5 - otpRecord.attempts - 1
-      console.log('❌ ERROR: Code mismatch, remaining:', remaining)
+      console.log('ERROR: Code mismatch, remaining:', remaining)
       console.log('========================================')
       return NextResponse.json(
         { error: `รหัส OTP ไม่ถูกต้อง (เหลือ ${remaining} ครั้ง)` },
@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
       data: { verified: true },
     })
 
-    console.log('✅ SUCCESS: OTP verified!')
+    console.log('SUCCESS: OTP verified!')
     console.log('========================================')
 
     return NextResponse.json({
@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
     })
 
   } catch (error) {
-    console.log('❌ EXCEPTION:', error)
+    console.log('EXCEPTION:', error)
     console.log('========================================')
     return NextResponse.json(
       { error: 'เกิดข้อผิดพลาด' },

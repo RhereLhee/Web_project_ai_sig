@@ -83,7 +83,7 @@ export default async function CourseVideosPage({ params }: Props) {
           href={`/admin/courses/${course.id}`} 
           className="text-gray-500 hover:text-gray-700"
         >
-          ← กลับ
+          กลับ
         </Link>
       </div>
 

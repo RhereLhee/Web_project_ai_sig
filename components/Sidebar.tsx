@@ -93,9 +93,9 @@ export function Sidebar({ user, hasPartner, hasSignal }: SidebarProps) {
 
   // Course submenu items
   const courseSubMenu = [
-    { name: "Free Courses", href: "/courses?tab=free", icon: "🆓", locked: false },
-    { name: "Pro Courses", href: "/courses?tab=pro", icon: "⭐", locked: !hasSignal && !isAdmin },
-    { name: "Partner Courses", href: "/courses?tab=partner", icon: "🤝", locked: !hasPartner && !isAdmin },
+    { name: "Free Courses", href: "/courses?tab=free", icon: "", locked: false },
+    { name: "Pro Courses", href: "/courses?tab=pro", icon: "", locked: !hasSignal && !isAdmin },
+    { name: "Partner Courses", href: "/courses?tab=partner", icon: "", locked: !hasPartner && !isAdmin },
   ]
 
   // Sidebar content (reusable)
@@ -156,7 +156,7 @@ export function Sidebar({ user, hasPartner, hasSignal }: SidebarProps) {
                 : "text-red-400 hover:bg-red-900/50 hover:text-white"
             }`}
           >
-            <span className="text-xl">🛡️</span>
+            <span className="text-xl"></span>
             <span className="font-medium">Admin Panel</span>
           </Link>
         )}
@@ -171,7 +171,7 @@ export function Sidebar({ user, hasPartner, hasSignal }: SidebarProps) {
               : "text-gray-300 hover:bg-gray-800 hover:text-white"
           }`}
         >
-          <span className="text-xl">🏠</span>
+          <span className="text-xl"></span>
           <span className="font-medium">หน้าหลัก</span>
         </Link>
 
@@ -185,7 +185,7 @@ export function Sidebar({ user, hasPartner, hasSignal }: SidebarProps) {
               : "text-gray-300 hover:bg-gray-800 hover:text-white"
           }`}
         >
-          <span className="text-xl">📊</span>
+          <span className="text-xl"></span>
           <span className="font-medium">Signal Room</span>
         </Link>
 
@@ -200,7 +200,7 @@ export function Sidebar({ user, hasPartner, hasSignal }: SidebarProps) {
             }`}
           >
             <div className="flex items-center space-x-3">
-              <span className="text-xl">📚</span>
+              <span className="text-xl"></span>
               <span className="font-medium">ห้องเรียน</span>
             </div>
             <svg 
@@ -236,7 +236,7 @@ export function Sidebar({ user, hasPartner, hasSignal }: SidebarProps) {
                       <span>{item.name}</span>
                     </div>
                     {item.locked && (
-                      <span className="text-gray-500">🔒</span>
+                      <span className="text-gray-500"></span>
                     )}
                   </Link>
                 )
@@ -255,7 +255,7 @@ export function Sidebar({ user, hasPartner, hasSignal }: SidebarProps) {
               : "text-gray-300 hover:bg-gray-800 hover:text-white"
           }`}
         >
-          <span className="text-xl">🤝</span>
+          <span className="text-xl"></span>
           <span className="font-medium">Partner</span>
         </Link>
       </nav>

@@ -78,12 +78,12 @@ export default async function CoursesPage({ searchParams }: Props) {
       <div className="bg-white rounded-xl shadow-sm p-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">📚 ห้องเรียน</h1>
+            <h1 className="text-xl font-bold text-gray-900">ห้องเรียน</h1>
             <p className="text-sm text-gray-500">{tabLabels[currentTab]}</p>
           </div>
           {!hasAccess && (
             <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">
-              🔒 ต้องอัพเกรด
+              ต้องอัพเกรด
             </span>
           )}
         </div>
@@ -93,7 +93,7 @@ export default async function CoursesPage({ searchParams }: Props) {
       {!hasAccess && (
         <div className="bg-white rounded-xl shadow-sm p-8 text-center">
           <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-3xl">🔒</span>
+            <span className="text-3xl"></span>
           </div>
           <h2 className="text-lg font-bold text-gray-900 mb-2">
             {currentTab === 'PRO' ? 'คอร์สสำหรับสมาชิก Signal' : 'คอร์สสำหรับ Partner'}
@@ -118,7 +118,7 @@ export default async function CoursesPage({ searchParams }: Props) {
           {/* Finance Courses Section */}
           <div>
             <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
-              <span className="mr-2">💰</span>
+              <span className="mr-2"></span>
               หลักสูตรการเงิน
             </h2>
             
@@ -138,7 +138,7 @@ export default async function CoursesPage({ searchParams }: Props) {
           {/* Trading Courses Section */}
           <div>
             <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
-              <span className="mr-2">📈</span>
+              <span className="mr-2"></span>
               หลักสูตรการเทรด
             </h2>
             
@@ -159,7 +159,7 @@ export default async function CoursesPage({ searchParams }: Props) {
           {financeCourses.length === 0 && tradingCourses.length === 0 && (
             <div className="bg-white rounded-xl shadow-sm p-12 text-center">
               <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-3xl">📚</span>
+                <span className="text-3xl"></span>
               </div>
               <h2 className="text-lg font-bold text-gray-900 mb-2">ยังไม่มีคอร์สในหมวดนี้</h2>
               <p className="text-gray-500">กรุณากลับมาใหม่ภายหลัง</p>
@@ -188,7 +188,7 @@ function CourseCard({ course }: { course: CourseWithSections }) {
         ) : (
           <div className="absolute inset-0 flex items-center justify-center">
             <span className="text-4xl">
-              {course.type === 'FINANCE' ? '💰' : '📈'}
+              {course.type === 'FINANCE' ? '' : ''}
             </span>
           </div>
         )}
@@ -216,7 +216,7 @@ function CourseCard({ course }: { course: CourseWithSections }) {
 
         <div className="flex items-center justify-between">
           <span className="text-xs text-gray-400">
-            📹 {totalVideos} วิดีโอ
+            {totalVideos} วิดีโอ
           </span>
           <Link 
             href={`/courses/${course.slug}`}

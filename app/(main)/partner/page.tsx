@@ -361,7 +361,7 @@ export default async function PartnerPage() {
             target="_blank"
             className="inline-block mt-3 text-sm text-gray-500 hover:text-gray-700 hover:underline"
           >
-            อ่านเงื่อนไขฉบับเต็ม →
+            อ่านเงื่อนไขฉบับเต็ม 
           </a>
         </div>
       </div>
@@ -424,7 +424,7 @@ export default async function PartnerPage() {
           target="_blank"
           className="inline-block mt-3 text-sm text-gray-500 hover:text-gray-700 hover:underline"
         >
-          อ่านเงื่อนไขฉบับเต็ม →
+          อ่านเงื่อนไขฉบับเต็ม 
         </a>
       </div>
 

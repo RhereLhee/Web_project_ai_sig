@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { auth, RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult } from "@/lib/firebase"
 
 // ============================================
-// 🔧 DEV MODE: ตั้งเป็น false เพื่อใช้ OTP จริง
+// DEV MODE: ตั้งเป็น false เพื่อใช้ OTP จริง
 // ============================================
 const DEV_SKIP_OTP = false  // true = ข้าม OTP, false = ใช้ OTP จริง
 
@@ -103,26 +103,26 @@ export function WithdrawButton({ balance, bankInfo, userPhone, lockedPhone }: Wi
         recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaRef.current, {
           size: 'normal', // ใช้ visible mode แทน invisible
           callback: (response: string) => {
-            console.log('✅ reCAPTCHA solved:', response)
+            console.log('reCAPTCHA solved:', response)
             setRecaptchaSolved(true)
             setError('')
           },
           'expired-callback': () => {
-            console.log('⚠️ reCAPTCHA expired')
+            console.log('reCAPTCHA expired')
             setRecaptchaSolved(false)
             setError('reCAPTCHA หมดอายุ กรุณากดยืนยันใหม่')
           },
         })
 
         recaptchaVerifierRef.current.render().then((widgetId) => {
-          console.log('✅ reCAPTCHA rendered, widgetId:', widgetId)
+          console.log('reCAPTCHA rendered, widgetId:', widgetId)
           setRecaptchaReady(true)
         }).catch((err) => {
-          console.error('❌ reCAPTCHA render error:', err)
+          console.error('reCAPTCHA render error:', err)
           setError(`ไม่สามารถโหลด reCAPTCHA: ${err.message}`)
         })
       } catch (err: any) {
-        console.error('❌ reCAPTCHA init error:', err)
+        console.error('reCAPTCHA init error:', err)
         setError(`เกิดข้อผิดพลาด: ${err.message}`)
       }
     }
@@ -212,10 +212,10 @@ export function WithdrawButton({ balance, bankInfo, userPhone, lockedPhone }: Wi
     }
 
     // ============================================
-    // 🔧 DEV MODE: ข้าม OTP ไปหน้า confirm เลย
+    // DEV MODE: ข้าม OTP ไปหน้า confirm เลย
     // ============================================
     if (DEV_SKIP_OTP) {
-      console.log('⚠️ DEV MODE: Skipping OTP verification')
+      console.log('DEV MODE: Skipping OTP verification')
       setStep('confirm')
       return
     }
@@ -242,12 +242,12 @@ export function WithdrawButton({ balance, bankInfo, userPhone, lockedPhone }: Wi
 
       const result = await signInWithPhoneNumber(auth, phoneE164, recaptchaVerifierRef.current)
       
-      console.log('✅ OTP sent successfully!')
+      console.log('OTP sent successfully!')
       setConfirmationResult(result)
       setStep('otp')
       setCountdown(60)
     } catch (err: any) {
-      console.error('❌ Send OTP error:', err)
+      console.error('Send OTP error:', err)
       console.error('Error code:', err.code)
       console.error('Error message:', err.message)
       
@@ -365,7 +365,7 @@ export function WithdrawButton({ balance, bankInfo, userPhone, lockedPhone }: Wi
         onClick={() => setOpen(true)} 
         className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium transition-colors"
       >
-        💸 ถอนเงิน
+        ถอนเงิน
       </button>
 
       {open && (
@@ -454,7 +454,7 @@ export function WithdrawButton({ balance, bankInfo, userPhone, lockedPhone }: Wi
                         <div className="w-full px-4 py-3 bg-gray-100 border border-gray-300 rounded-lg text-gray-700 font-mono">
                           {formatPhoneDisplay(phoneToUse)}
                         </div>
-                        <p className="text-xs text-yellow-600 mt-1">🔒 เบอร์ถูกล็อคจากการถอนครั้งก่อน</p>
+                        <p className="text-xs text-yellow-600 mt-1">เบอร์ถูกล็อคจากการถอนครั้งก่อน</p>
                       </div>
                     ) : (
                       <input
@@ -551,7 +551,7 @@ export function WithdrawButton({ balance, bankInfo, userPhone, lockedPhone }: Wi
 
                   {recaptchaSolved && (
                     <div className="text-center text-emerald-600 text-sm font-medium">
-                      ✅ ยืนยันสำเร็จ!
+                      ยืนยันสำเร็จ!
                     </div>
                   )}
 

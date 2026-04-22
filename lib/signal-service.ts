@@ -84,11 +84,12 @@ class SignalService {
   // ============================================
 
   connect(wsUrl?: string, httpUrl?: string): void {
-    // Default URLs - ชี้ไปที่ Render API
+    // Default URL — ชี้ไปที่ API tunnel/Render. ตั้ง NEXT_PUBLIC_WS_URL
+    // ใน .env.local ของแต่ละ working copy เพื่อ override.
     const defaultWsUrl = process.env.NEXT_PUBLIC_WS_URL || 'wss://trading-api-83hs.onrender.com/ws/signal'
-    
+
     this.wsUrl = wsUrl || defaultWsUrl
-    
+
     // Try WebSocket first
     this.connectWebSocket()
   }
@@ -98,17 +99,17 @@ class SignalService {
     if (this.ws?.readyState === WebSocket.OPEN) return
 
     try {
-      console.log(`🔌 Connecting to WebSocket: ${this.wsUrl}`)
+      console.log(`Connecting to WebSocket: ${this.wsUrl}`)
       this.ws = new WebSocket(this.wsUrl)
 
       this.ws.onopen = () => {
-        console.log('✅ WebSocket connected')
+        console.log('WebSocket connected')
         this.connected = true
         this.reconnectAttempts = 0
         this.usePolling = false
         this.stopPolling()
         this.notifyConnectionListeners(true)
-        
+
         // Request symbol configs - ต้องรอ connection เปิดแล้ว
         setTimeout(() => {
           if (this.ws?.readyState === WebSocket.OPEN) {
@@ -126,12 +127,16 @@ class SignalService {
         }
       }
 
-      this.ws.onerror = (error) => {
-        console.error('❌ WebSocket error:', error)
+      // Browsers intentionally fire an opaque `error` Event with no useful
+      // details. The real reason (network/CORS/server down) surfaces in
+      // onclose via `code`/`reason`. Log as warn — we recover via reconnect
+      // + polling fallback, so this is not a user-facing error.
+      this.ws.onerror = () => {
+        console.warn(`WebSocket error (url=${this.wsUrl}) — will attempt reconnect`)
       }
 
-      this.ws.onclose = () => {
-        console.log('❌ WebSocket disconnected')
+      this.ws.onclose = (event) => {
+        console.log(`WebSocket disconnected (code=${event.code}${event.reason ? `, reason=${event.reason}` : ''})`)
         this.connected = false
         this.notifyConnectionListeners(false)
         this.scheduleReconnect()
@@ -184,15 +189,15 @@ class SignalService {
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.log('⚠️ Max reconnect attempts reached, falling back to polling')
+      console.log('Max reconnect attempts reached, falling back to polling')
       this.startPollingFallback()
       return
     }
 
     const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts), 30000)
     this.reconnectAttempts++
-    
-    console.log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`)
+
+    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`)
     
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
@@ -208,7 +213,7 @@ class SignalService {
     if (this.pollingInterval) return
     
     this.usePolling = true
-    console.log('📡 Starting HTTP polling fallback')
+    console.log('Starting HTTP polling fallback')
     
     // Initial fetch
     this.fetchData()

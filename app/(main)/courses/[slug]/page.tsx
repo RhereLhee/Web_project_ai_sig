@@ -76,7 +76,7 @@ export default async function CoursePage({ params, searchParams }: Props) {
   // หาวิดีโอปัจจุบันจาก index (v=1, v=2, ...)
   let currentIndex = 0
   if (videoIndex) {
-    const idx = parseInt(videoIndex) - 1 // v=1 → index 0
+    const idx = parseInt(videoIndex) - 1 // v=1 index 0
     if (idx >= 0 && idx < allVideos.length) {
       currentIndex = idx
     }
@@ -96,7 +96,7 @@ export default async function CoursePage({ params, searchParams }: Props) {
         <div className="flex items-center justify-between">
           <div>
             <Link href="/courses" className="text-sm text-gray-500 hover:text-gray-700 mb-1 inline-block">
-              ← กลับไปรายการคอร์ส
+              กลับไปรายการคอร์ส
             </Link>
             <h1 className="text-xl font-bold text-gray-900">{course.title}</h1>
             {course.description && (
@@ -132,7 +132,7 @@ export default async function CoursePage({ params, searchParams }: Props) {
       {allVideos.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
           <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-3xl">🎬</span>
+            <span className="text-3xl"></span>
           </div>
           <h2 className="text-lg font-bold text-gray-900 mb-2">ยังไม่มีวิดีโอ</h2>
           <p className="text-gray-500">คอร์สนี้ยังไม่มีเนื้อหา กรุณากลับมาใหม่ภายหลัง</p>
@@ -160,7 +160,7 @@ export default async function CoursePage({ params, searchParams }: Props) {
           {/* Sidebar - Video List (ไม่มี Thumbnail เพื่อซ่อน Video ID) */}
           <div className="bg-white rounded-xl shadow-sm overflow-hidden">
             <div className="p-4 bg-gray-50 border-b">
-              <h2 className="font-semibold text-gray-900">📹 รายการวิดีโอ</h2>
+              <h2 className="font-semibold text-gray-900">รายการวิดีโอ</h2>
               <p className="text-sm text-gray-500">{totalVideos} วิดีโอ</p>
             </div>
 
@@ -186,7 +186,7 @@ export default async function CoursePage({ params, searchParams }: Props) {
                         ? 'bg-emerald-100 text-emerald-700'
                         : 'bg-gray-100 text-gray-600'
                     }`}>
-                      {isCompleted ? '✓' : index + 1}
+                      {isCompleted ? '' : index + 1}
                     </span>
 
                     {/* Info */}
@@ -203,7 +203,7 @@ export default async function CoursePage({ params, searchParams }: Props) {
 
                     {/* Playing indicator */}
                     {isActive && (
-                      <span className="text-emerald-500 text-sm ml-2">▶</span>
+                      <span className="text-emerald-500 text-sm ml-2"></span>
                     )}
                   </Link>
                 )

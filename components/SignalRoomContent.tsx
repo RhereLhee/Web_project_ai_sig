@@ -198,7 +198,7 @@ export function SignalRoomContent({ user }: SignalRoomContentProps) {
       ctx.fillStyle = lastCandle.close >= lastCandle.open ? COLORS.up : COLORS.down
       ctx.font = 'bold 10px monospace'
       ctx.textAlign = 'left'
-      ctx.fillText(`► ${lastCandle.close.toFixed(decimals)}`, width - margin.right + 5, currentY - 10)
+      ctx.fillText(`${lastCandle.close.toFixed(decimals)}`, width - margin.right + 5, currentY - 10)
     }
 
     // Draw signals
@@ -414,7 +414,7 @@ export function SignalRoomContent({ user }: SignalRoomContentProps) {
       {/* PiP Tip */}
       {isPipSupported && (
         <p className="text-center text-xs text-gray-400">
-          💡 กดปุ่ม <span className="text-emerald-500 font-medium">PiP</span> เพื่อให้กราฟลอยทับแอปเทรด (รองรับทุกอุปกรณ์)
+          กดปุ่ม <span className="text-emerald-500 font-medium">PiP</span> เพื่อให้กราฟลอยทับแอปเทรด (รองรับทุกอุปกรณ์)
           {isPipActive && <span className="text-emerald-400 ml-1">(กำลังใช้งาน - ทำงานต่อแม้เปลี่ยนหน้า)</span>}
         </p>
       )}

@@ -41,7 +41,7 @@ export function validateThaiPhone(phone: string): { valid: boolean; error?: stri
 
 /**
  * แปลงเบอร์ไทยเป็น format +66
- * 0812345678 → +66812345678
+ * 0812345678 +66812345678
  */
 export function formatPhoneToE164(phone: string): string {
   const cleaned = phone.replace(/[\s\-]/g, '')
@@ -59,7 +59,7 @@ export function formatPhoneToE164(phone: string): string {
 
 /**
  * แปลงเบอร์ +66 กลับเป็น 0
- * +66812345678 → 0812345678
+ * +66812345678 0812345678
  */
 export function formatPhoneToLocal(phone: string): string {
   if (phone.startsWith('+66')) {

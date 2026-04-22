@@ -43,7 +43,7 @@ export default async function WithdrawPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">💰 ถอนเงิน</h1>
+      <h1 className="text-2xl font-bold text-gray-900">ถอนเงิน</h1>
 
       {/* Balance Card */}
       <div className="card bg-gradient-to-br from-emerald-500 to-cyan-600 text-white">
@@ -63,7 +63,7 @@ export default async function WithdrawPage() {
       {!canWithdraw && (
         <div className="card bg-yellow-50 border-yellow-200">
           <div className="flex items-start space-x-3">
-            <span className="text-3xl">⚠️</span>
+            <span className="text-3xl"></span>
             <div className="flex-1">
               <h3 className="font-semibold text-yellow-800 mb-2">เงื่อนไขการถอนเงิน</h3>
               <p className="text-sm text-yellow-700 mb-3">
@@ -72,11 +72,11 @@ export default async function WithdrawPage() {
               
               <div className="space-y-2 mb-4">
                 <div className={`flex items-center space-x-2 ${hasSignal ? 'text-green-700' : 'text-red-700'}`}>
-                  <span>{hasSignal ? '✅' : '❌'}</span>
+                  <span>{hasSignal ? '' : ''}</span>
                   <span className="text-sm">Signal Access</span>
                 </div>
                 <div className={`flex items-center space-x-2 ${hasSub ? 'text-green-700' : 'text-red-700'}`}>
-                  <span>{hasSub ? '✅' : '❌'}</span>
+                  <span>{hasSub ? '' : ''}</span>
                   <span className="text-sm">PRO Subscription</span>
                 </div>
               </div>
@@ -93,7 +93,7 @@ export default async function WithdrawPage() {
       {canWithdraw && availableBalance < minWithdraw && (
         <div className="card bg-orange-50 border-orange-200">
           <div className="flex items-start space-x-3">
-            <span className="text-2xl">💡</span>
+            <span className="text-2xl"></span>
             <div>
               <h3 className="font-semibold text-orange-800 mb-1">ยอดเงินไม่ถึงขั้นต่ำ</h3>
               <p className="text-sm text-orange-700">
@@ -156,7 +156,7 @@ export default async function WithdrawPage() {
 
       {/* Info */}
       <div className="card bg-blue-50 border-blue-200">
-        <h3 className="font-semibold text-blue-900 mb-2">ℹ️ หมายเหตุ</h3>
+        <h3 className="font-semibold text-blue-900 mb-2">หมายเหตุ</h3>
         <ul className="text-sm text-blue-800 space-y-1">
           <li>• ขั้นต่ำในการถอนคือ ฿{minWithdraw} ต่อครั้ง</li>
           <li>• ต้องมีทั้ง Signal Access และ PRO Subscription</li>

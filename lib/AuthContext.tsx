@@ -58,12 +58,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const res = await fetch('/api/auth/refresh', { method: 'POST' })
           if (!res.ok) {
-            // Refresh failed → logout
+            // Refresh failed logout
             setUser(null)
             router.push('/login')
           }
         } catch {
-          // Network error → อาจจะ offline
+          // Network error อาจจะ offline
         }
       }
     }, 90 * 1000) // Refresh ทุก 90 วินาที (ก่อน 2 นาทีหมดอายุ)

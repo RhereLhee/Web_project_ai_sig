@@ -15,8 +15,8 @@
 
 | Repo | URL | Deploy |
 |---|---|---|
-| **Frontend (Next.js)** | `github.com/RhereLhee/Web_project_ai_sig` | Render auto-deploy → `techtrade-ztdd.onrender.com` |
-| **Backend (Python)** | `github.com/RhereLhee/algorithm_trade_Project` | Render auto-deploy → `trading-api-83hs.onrender.com` + VPS manual |
+| **Frontend (Next.js)** | `github.com/RhereLhee/Web_project_ai_sig` | Render auto-deploy `techtrade-ztdd.onrender.com` |
+| **Backend (Python)** | `github.com/RhereLhee/algorithm_trade_Project` | Render auto-deploy `trading-api-83hs.onrender.com` + VPS manual |
 
 ---
 
@@ -27,14 +27,14 @@
                          │  Windows VPS (Windows Server)                           │
                          │  Path: C:\Users\Administrator\PycharmProjects\pythonProject3  │
                          │                                                         │
-  MT5 Terminal ────────► │  real_time_monitor.py (Process 1)                       │
+  MT5 Terminal ────────│  real_time_monitor.py (Process 1)                       │
   (market data)          │    - อ่าน candle data 6 symbols จาก MT5               │
   (6 symbols)            │    - รัน AI Model V7 predict signal                    │
                          │    - POST /bridge/update ไป Render API (timeout 15s)   │
                          │    - POST /bridge/update ไป localhost:8000 ด้วย        │
                          │    - แนบ hls_url ใน bridge data (ถ้ามี HLS_PUBLIC_URL)  │
                          │                                                         │
-                         │  run_api.py (Process 2) → FastAPI :8000                │
+                         │  run_api.py (Process 2) FastAPI :8000                │
                          │    - รับ bridge data จาก monitor                        │
                          │    - WebSocket /ws/signal broadcast ทุก 1 วินาที       │
                          │    - Mount /stream/ สำหรับ HLS files                   │
@@ -45,12 +45,12 @@
                          │    - Pillow render chart 1280x720 HD                   │
                          │    - Centered symbol name, large fonts, no prices      │
                          │    - Single countdown MM:SS at top-right                │
-                         │    - FFmpeg pipe → HLS (.m3u8 + .ts segments)           │
+                         │    - FFmpeg pipe HLS (.m3u8 + .ts segments)           │
                          │    - Output: stream/signal.m3u8                         │
                          └───────────┬─────────────────────────────────────────────┘
                                      │ POST /bridge/update
                                      │ (ทุก ~1 วินาที)
-                                     ▼
+                                     
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │  Render Free Tier (Python API)                                                   │
 │  URL: https://trading-api-83hs.onrender.com                                     │
@@ -58,11 +58,11 @@
 │  realtime_api.py (เหมือนกัน deploy จาก repo เดียวกัน)                           │
 │    - รับ bridge data จาก VPS                                                    │
 │    - Cache _bridge_hls_url จาก bridge data                                      │
-│    - WebSocket /ws/signal → broadcast ไป frontend clients                       │
+│    - WebSocket /ws/signal broadcast ไป frontend clients                       │
 │    - hls_url fallback chain: env > bridge data > cached URL                     │
 │    - /debug/hls endpoint สำหรับ debug HLS URL delivery                          │
-│    - ถ้าไม่มี bridge data → broadcast mock_data อัตโนมัติ                       │
-│    - Auth: ถ้าไม่มี API key ตั้ง → skip auth (ให้ VPS POST ได้เลย)              │
+│    - ถ้าไม่มี bridge data broadcast mock_data อัตโนมัติ                       │
+│    - Auth: ถ้าไม่มี API key ตั้ง skip auth (ให้ VPS POST ได้เลย)              │
 │                                                                                  │
 │  IMPORTANT: Render Free Tier sleep หลัง 15 นาที                                 │
 │    - cold start ใช้เวลา 30-60 วินาที                                           │
@@ -70,7 +70,7 @@
 │    - ใช้ UptimeRobot ping ป้องกัน sleep                                         │
 └──────────────────────────────────────────────────────────────────────────────────┘
                                      │ WebSocket (wss://)
-                                     ▼
+                                     
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │  Render Free Tier (Next.js Frontend)                                             │
 │  URL: https://techtrade-ztdd.onrender.com                                        │
@@ -87,9 +87,9 @@
 │    - Countdown จาก MT5 ตรงๆ (ไม่มี local timer)                                │
 │                                                                                  │
 │  pip-manager.ts (Singleton - PiP Fallback Chain)                                │
-│    1. HLS PiP → <video src="m3u8"> + requestPictureInPicture (ลอยข้ามแอป)       │
-│    2. Canvas PiP → captureStream + requestPictureInPicture (Desktop only)        │
-│    3. Overlay → fixed div ลากได้ในเว็บ (fallback สุดท้าย)                       │
+│    1. HLS PiP <video src="m3u8"> + requestPictureInPicture (ลอยข้ามแอป)       │
+│    2. Canvas PiP captureStream + requestPictureInPicture (Desktop only)        │
+│    3. Overlay fixed div ลากได้ในเว็บ (fallback สุดท้าย)                       │
 │    + CSS injection ซ่อน webkit media controls                                   │
 │    + Media Session API noop handlers ซ่อนปุ่มควบคุม                             │
 │    + playbackState keepalive ทุก 2 วิ                                           │
@@ -105,18 +105,18 @@
 
 ### Data Flow Summary
 ```
-MT5 → real_time_monitor.py → POST /bridge/update → Render Python API → WebSocket → Frontend
-                            └→ POST localhost:8000 → VPS local API → HLS streamer reads data
+MT5 real_time_monitor.py POST /bridge/update Render Python API WebSocket Frontend
+                            └POST localhost:8000 VPS local API HLS streamer reads data
 ```
 
 ### HLS URL Delivery Chain
 ```
 VPS: HLS_PUBLIC_URL env (or hardcoded default in real_time_monitor.py)
-  → real_time_monitor.py แนบใน bridge data
-  → POST /bridge/update ไป Render API
-  → realtime_api.py cache _bridge_hls_url + ส่งต่อใน WebSocket broadcast
-  → Frontend signal-service.ts รับ data.hls_url
-  → pip-manager.ts preloadHlsVideo() สร้าง <video> element พร้อมใช้
+  real_time_monitor.py แนบใน bridge data
+  POST /bridge/update ไป Render API
+  realtime_api.py cache _bridge_hls_url + ส่งต่อใน WebSocket broadcast
+  Frontend signal-service.ts รับ data.hls_url
+  pip-manager.ts preloadHlsVideo() สร้าง <video> element พร้อมใช้
 ```
 
 ### 6 Trading Symbols
@@ -151,7 +151,7 @@ AUDUSDm, EURUSDm, GBPUSDm, USDJPYm, EURGBPm, EURJPYm
 - [x] Lock back button ในหน้า signal
 
 #### HLS Streaming (VPS)
-- [x] HLS streamer: Pillow + FFmpeg render chart → HLS stream
+- [x] HLS streamer: Pillow + FFmpeg render chart HLS stream
 - [x] Resolution: 1280x720 HD (readable on small PiP)
 - [x] Large fonts: brand 36px, symbol 30px centered, countdown 34px
 - [x] Outer padding 20px (iOS PiP rounded corners)
@@ -162,7 +162,7 @@ AUDUSDm, EURUSDm, GBPUSDm, USDJPYm, EURGBPm, EURJPYm
 
 #### PiP (Picture-in-Picture)
 - [x] pip-manager.ts: pre-load HLS video ทันทีที่ได้ URL จาก WebSocket
-- [x] PiP fallback chain: HLS → Canvas → Overlay
+- [x] PiP fallback chain: HLS Canvas Overlay
 - [x] iOS Safari: webkit-first PiP approach (ลอยข้ามแอปได้)
 - [x] Android Chrome: native Video PiP (ลอยข้ามแอปได้)
 - [x] Desktop Chrome: canvas captureStream PiP
@@ -186,7 +186,7 @@ AUDUSDm, EURUSDm, GBPUSDm, USDJPYm, EURGBPm, EURJPYm
 - [x] ลบ PipDebugPanel component (~70 บรรทัด)
 - [x] ลบ getDebugInfo, lastError fields จาก pip-manager.ts
 - [x] ลบ local countdown timer จาก PipProvider.tsx (ใช้ MT5 countdown ตรงๆ)
-- [x] แก้ countdown fallback: `||` → `??` (รองรับ countdown=0 ตอนตลาดปิด)
+- [x] แก้ countdown fallback: `||` `??` (รองรับ countdown=0 ตอนตลาดปิด)
 
 ---
 
@@ -241,16 +241,16 @@ signalService.onData((d) => console.log('countdown:', d.countdown))
 
 ### ISSUE 3: Cloudflare Quick Tunnel URL ไม่คงที่
 
-**อาการ**: ทุกครั้งที่ restart Cloudflare tunnel บน VPS → URL เปลี่ยน → ต้อง set `HLS_PUBLIC_URL` ใหม่
+**อาการ**: ทุกครั้งที่ restart Cloudflare tunnel บน VPS URL เปลี่ยน ต้อง set `HLS_PUBLIC_URL` ใหม่
 
 **Workaround ปัจจุบัน**: Hardcode URL เป็น default value ใน `real_time_monitor.py` line 88:
 ```python
 HLS_PUBLIC_URL = os.environ.get("HLS_PUBLIC_URL", "https://xxx.trycloudflare.com")
 ```
-→ ต้องแก้ค่า default ทุกครั้งที่ restart tunnel
+ต้องแก้ค่า default ทุกครั้งที่ restart tunnel
 
 **ทางแก้ระยะยาว**:
-1. **Cloudflare Named Tunnel** (ฟรี) — ต้องมี domain name → URL คงที่ตลอด
+1. **Cloudflare Named Tunnel** (ฟรี) — ต้องมี domain name URL คงที่ตลอด
 2. **nginx + certbot + static domain** — self-hosted reverse proxy
 3. **Deploy HLS on Render** — ไม่ต้อง tunnel (แต่ Render Free Tier มี limitation)
 
@@ -261,7 +261,7 @@ HLS_PUBLIC_URL = os.environ.get("HLS_PUBLIC_URL", "https://xxx.trycloudflare.com
 ```
 User กด PiP button (pip-manager.ts toggle())
     │
-    ▼
+    
 1. startHlsPip()
    - ต้องมี this.hlsUrl (มาจาก WebSocket data.hls_url)
    - ต้องมี this.hlsVideo (pre-loaded ตอนได้ URL)
@@ -269,22 +269,22 @@ User กด PiP button (pip-manager.ts toggle())
    - เรียก play() + requestPictureInPicture()
    - setupViewOnlyMediaSession() อีกรอบหลัง PiP เริ่ม
    - เริ่ม keepalive interval (playbackState + auto-resume)
-   - ถ้าสำเร็จ → ลอยข้ามแอปได้ ✅
-   - ถ้า fail → ↓
+   - ถ้าสำเร็จ ลอยข้ามแอปได้ 
+   - ถ้า fail 
     │
-    ▼
+    
 2. startCanvasPip()
    - ใช้ canvas.captureStream(30fps) + hidden video
    - ทำงานบน Desktop Chrome/Edge เท่านั้น
    - iOS Safari ไม่รองรับ captureStream
-   - ถ้า fail → ↓
+   - ถ้า fail 
     │
-    ▼
+    
 3. startPopupPip()
    - ลบ overlay เก่าก่อน (ป้องกันซ้อน)
    - สร้าง fixed div overlay z-index:9999
    - ลากได้ด้วย touch/mouse
-   - ลอยในเว็บเท่านั้น ❌ ไม่ข้ามแอป
+   - ลอยในเว็บเท่านั้น ไม่ข้ามแอป
 ```
 
 ### PiP Control Hiding Techniques (Sigzy-style)
@@ -342,7 +342,7 @@ User กด PiP button (pip-manager.ts toggle())
 |---|---|---|
 | `real_time_monitor.py` | MT5 data collection, AI prediction, bridge POST | Process 1 บน VPS, timeout 15s |
 | `api/realtime_api.py` | FastAPI server, WebSocket broadcast, bridge endpoint | Process 2, deploy ทั้ง VPS + Render, มี /debug/hls |
-| `api/hls_streamer.py` | Pillow + FFmpeg chart rendering → HLS stream | 1280x720 HD, large fonts, no prices |
+| `api/hls_streamer.py` | Pillow + FFmpeg chart rendering HLS stream | 1280x720 HD, large fonts, no prices |
 | `api/run_api.py` | FastAPI entry point | Start server + HLS streamer background |
 | `config/settings.py` | SYMBOLS, TIMEFRAME_MAP, API keys | 6 symbols |
 
@@ -370,7 +370,7 @@ PROMPTPAY_ID=<promptpay-number>
 
 ### Render (Python API)
 ```bash
-# ถ้าไม่ set API key → skip auth สำหรับ bridge endpoint
+# ถ้าไม่ set API key skip auth สำหรับ bridge endpoint
 # API_KEY_ADMIN=<key>
 # API_KEY_USER=<key>
 ALLOWED_ORIGINS=https://techtrade-ztdd.onrender.com,http://localhost:3000
@@ -428,7 +428,7 @@ git pull
 ```bash
 curl https://trading-api-83hs.onrender.com/
 # ต้องเห็น: {"status":"running","mt5_bridge":"connected",...}
-# ถ้า timeout → Render กำลัง cold start (รอ 30-60 วิ)
+# ถ้า timeout Render กำลัง cold start (รอ 30-60 วิ)
 ```
 
 ### Step 2: เช็ค Bridge
@@ -437,7 +437,7 @@ curl -X POST https://trading-api-83hs.onrender.com/bridge/update \
   -H "Content-Type: application/json" \
   -d '{"symbols":{}}'
 # ต้องเห็น: {"status":"ok","symbols_received":0}
-# ถ้า 403 → ต้อง set API key หรือลบ API key ออก
+# ถ้า 403 ต้อง set API key หรือลบ API key ออก
 ```
 
 ### Step 3: เช็ค WebSocket
@@ -450,8 +450,8 @@ new WebSocket('wss://trading-api-83hs.onrender.com/ws/signal')
 ### Step 4: เช็ค VPS Monitor
 ```
 - VPS terminal ต้องเห็น: [API Bridge] ไม่มี error
-- ถ้าเห็น "Cannot connect" → Render อาจ sleep อยู่
-- ถ้าเห็น "HTTP 403" → API key ไม่ตรง
+- ถ้าเห็น "Cannot connect" Render อาจ sleep อยู่
+- ถ้าเห็น "HTTP 403" API key ไม่ตรง
 ```
 
 ### Step 5: เช็ค Frontend env
@@ -481,11 +481,11 @@ new WebSocket('wss://trading-api-83hs.onrender.com/ws/signal')
 ---
 
 ## Notes
-- Supabase Free Tier: auto-pause หลัง 7 วัน → ใช้ UptimeRobot ping `/api/health` ป้องกัน
-- Render Free Tier: sleep หลัง 15 นาที → ใช้ UptimeRobot ป้องกัน
+- Supabase Free Tier: auto-pause หลัง 7 วัน ใช้ UptimeRobot ping `/api/health` ป้องกัน
+- Render Free Tier: sleep หลัง 15 นาที ใช้ UptimeRobot ป้องกัน
 - Alert email: korawitns@gmail.com (ไม่ใช่ Telegram)
 - Affiliate system: ปิดชั่วคราว (toggle ที่ Admin > System Controls)
-- iOS Chrome ไม่รองรับ PiP API → ต้องใช้ Safari เท่านั้น
-- Cloudflare Quick Tunnel URL เปลี่ยนทุก restart → ใช้ Named Tunnel + domain แก้ปัญหา
-- `NEXT_PUBLIC_` env ถูก bake ตอน build → เปลี่ยนแล้วต้อง rebuild
-- PyCharm ไม่เห็น env ที่ set ใน PowerShell → hardcode default ใน code หรือใช้ .env file
+- iOS Chrome ไม่รองรับ PiP API ต้องใช้ Safari เท่านั้น
+- Cloudflare Quick Tunnel URL เปลี่ยนทุก restart ใช้ Named Tunnel + domain แก้ปัญหา
+- `NEXT_PUBLIC_` env ถูก bake ตอน build เปลี่ยนแล้วต้อง rebuild
+- PyCharm ไม่เห็น env ที่ set ใน PowerShell hardcode default ใน code หรือใช้ .env file

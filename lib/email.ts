@@ -98,10 +98,10 @@ async function sendViaResend(to: string, subject: string, html: string): Promise
 
 async function sendViaMock(to: string, subject: string, html: string): Promise<SendEmailResult> {
   console.log('═════════════════════════════════════════')
-  console.log('📧 MOCK EMAIL')
-  console.log(`📬 To: ${to}`)
-  console.log(`📝 Subject: ${subject}`)
-  console.log(`📄 Body: ${html.replace(/<[^>]*>/g, '').substring(0, 200)}...`)
+  console.log('MOCK EMAIL')
+  console.log(`To: ${to}`)
+  console.log(`Subject: ${subject}`)
+  console.log(`Body: ${html.replace(/<[^>]*>/g, '').substring(0, 200)}...`)
   console.log('═════════════════════════════════════════')
   
   return { success: true, messageId: `mock-${Date.now()}` }

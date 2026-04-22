@@ -98,7 +98,7 @@ export function LossDetailsModal({ losses }: LossDetailsModalProps) {
             {/* Footer */}
             <div className="p-6 border-t bg-gray-50">
               <p className="text-xs text-gray-500 text-center">
-                💡 Loss เกิดเมื่อ sequence ครบ 3 ไม้แล้วยังแพ้ - ควรพิจารณา retrain model
+                Loss เกิดเมื่อ sequence ครบ 3 ไม้แล้วยังแพ้ - ควรพิจารณา retrain model
               </p>
             </div>
           </div>

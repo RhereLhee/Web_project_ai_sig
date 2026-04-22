@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs'
 const prisma = new PrismaClient()
 
 async function main() {
-  console.log('🌱 Starting seed...')
+  console.log('Starting seed...')
 
   // สร้าง Admin
   const adminPassword = await bcrypt.hash('admin123456', 10)
@@ -18,7 +18,7 @@ async function main() {
       role: 'ADMIN',
     },
   })
-  console.log('✅ Admin:', admin.email)
+  console.log('Admin:', admin.email)
 
   // สร้าง Demo User
   const demoPassword = await bcrypt.hash('demo123456', 10)
@@ -32,7 +32,7 @@ async function main() {
       role: 'USER',
     },
   })
-  console.log('✅ Demo:', demo.email)
+  console.log('Demo:', demo.email)
 
   // ============================================
   // COURSES
@@ -208,9 +208,9 @@ async function main() {
     }
   })
 
-  console.log('✅ Courses created')
+  console.log('Courses created')
 
-  console.log('\n🎉 Seed completed!\n')
+  console.log('\nSeed completed!\n')
   console.log('Test accounts:')
   console.log('  Admin: admin@techtrade.io / admin123456')
   console.log('  Demo:  demo@techtrade.io / demo123456')

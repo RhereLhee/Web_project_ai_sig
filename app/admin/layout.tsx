@@ -8,36 +8,36 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     {
       title: "ภาพรวม",
       items: [
-        { href: "/admin", label: "Dashboard", icon: "📊" },
-        { href: "/admin/stats", label: "สถิติ", icon: "📈" },
+        { href: "/admin", label: "Dashboard", icon: "" },
+        { href: "/admin/stats", label: "สถิติ", icon: "" },
       ]
     },
     {
       title: "จัดการ",
       items: [
-        { href: "/admin/users", label: "สมาชิก", icon: "👥" },
-        { href: "/admin/orders", label: "ออเดอร์", icon: "💳" },
-        { href: "/admin/withdrawals", label: "ถอนเงิน", icon: "💸" },
+        { href: "/admin/users", label: "สมาชิก", icon: "" },
+        { href: "/admin/orders", label: "ออเดอร์", icon: "" },
+        { href: "/admin/withdrawals", label: "ถอนเงิน", icon: "" },
       ]
     },
     {
       title: "Signal",
       items: [
-        { href: "/admin/signal-settings", label: "จัดการ Signal", icon: "📡" },
+        { href: "/admin/signal-settings", label: "จัดการ Signal", icon: "" },
       ]
     },
     {
       title: "คอนเทนต์",
       items: [
-        { href: "/admin/courses", label: "คอร์ส", icon: "📚" },
+        { href: "/admin/courses", label: "คอร์ส", icon: "" },
       ]
     },
     {
       title: "ระบบ",
       items: [
-        { href: "/admin/system", label: "System Controls", icon: "🎛️" },
-        { href: "/admin/settings", label: "ตั้งค่า 2FA", icon: "⚙️" },
-        { href: "/admin/logs", label: "System Logs", icon: "📋" },
+        { href: "/admin/system", label: "System Controls", icon: "" },
+        { href: "/admin/settings", label: "ตั้งค่า 2FA", icon: "" },
+        { href: "/admin/logs", label: "System Logs", icon: "" },
       ]
     },
   ]
@@ -48,7 +48,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <aside className="w-64 bg-gray-900 text-white flex flex-col fixed h-full">
         <div className="p-4 border-b border-gray-700">
           <Link href="/admin" className="text-xl font-bold text-emerald-400">
-            🛡️ Admin Panel
+            Admin Panel
           </Link>
         </div>
         
@@ -74,7 +74,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
         <div className="p-4 border-t border-gray-700">
           <Link href="/dashboard" className="flex items-center space-x-2 text-gray-400 hover:text-white">
-            <span>←</span>
+            <span></span>
             <span>กลับหน้าหลัก</span>
           </Link>
         </div>

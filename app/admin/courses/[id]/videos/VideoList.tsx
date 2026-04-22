@@ -116,7 +116,7 @@ export function VideoList({ videos, courseId }: Props) {
     return (
       <div className="bg-white rounded-lg border p-12 text-center">
         <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <span className="text-3xl">🎬</span>
+          <span className="text-3xl"></span>
         </div>
         <h3 className="text-lg font-medium text-gray-900 mb-2">ยังไม่มีวิดีโอ</h3>
         <p className="text-gray-500 text-sm">เพิ่มวิดีโอแรกจากฟอร์มด้านซ้าย</p>
@@ -127,7 +127,7 @@ export function VideoList({ videos, courseId }: Props) {
   return (
     <div className="bg-white rounded-lg border overflow-hidden">
       <div className="p-4 bg-gray-50 border-b">
-        <h2 className="font-semibold text-gray-900">📹 รายการวิดีโอ ({videos.length})</h2>
+        <h2 className="font-semibold text-gray-900">รายการวิดีโอ ({videos.length})</h2>
       </div>
 
       <div className="divide-y">
@@ -182,7 +182,7 @@ export function VideoList({ videos, courseId }: Props) {
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-gray-400">
-                      🎬
+                      
                     </div>
                   )}
                 </div>
@@ -211,7 +211,7 @@ export function VideoList({ videos, courseId }: Props) {
                         className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30"
                         title="ขึ้น"
                       >
-                        ▲
+                        
                       </button>
                       <button
                         onClick={() => handleMoveDown(video.id, video.order)}
@@ -219,7 +219,7 @@ export function VideoList({ videos, courseId }: Props) {
                         className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30"
                         title="ลง"
                       >
-                        ▼
+                        
                       </button>
                     </div>
                   </div>
@@ -232,7 +232,7 @@ export function VideoList({ videos, courseId }: Props) {
                       rel="noopener noreferrer"
                       className="text-xs text-blue-600 hover:underline"
                     >
-                      ดูใน YouTube ↗
+                      ดูใน YouTube 
                     </a>
                     <button
                       onClick={() => handleEdit(video)}

@@ -13,7 +13,7 @@ export function CopyButton({ referralCode }: { referralCode: string }) {
 
   return (
     <button onClick={handleCopy} className="btn btn-primary">
-      {copied ? "✓ คัดลอกแล้ว" : "คัดลอกลิงก์"}
+      {copied ? "คัดลอกแล้ว" : "คัดลอกลิงก์"}
     </button>
   )
 }

@@ -96,14 +96,14 @@ class PipManager {
   // ============================================
 
   private init(): void {
-    // รองรับทุก platform — จะลอง HLS → Canvas PiP → Overlay ตอน start()
+    // รองรับทุก platform — จะลอง HLS Canvas PiP Overlay ตอน start()
     this.pipMode = 'hls'
     this.isSupported = true
 
     // Cleanup any existing PiP elements (from hot reload or previous instances)
     document.querySelectorAll('[data-pip-manager]').forEach(el => el.remove())
 
-    // ✅ Inject global CSS to hide webkit media controls on PiP video
+    // Inject global CSS to hide webkit media controls on PiP video
     // Sigzy-style: ซ่อนปุ่มทั้งหมดใน PiP ให้เหลือแค่ดู
     const existingStyle = document.getElementById('pip-hide-controls-css')
     if (existingStyle) existingStyle.remove()
@@ -232,7 +232,7 @@ class PipManager {
       }
     })
 
-    // เมื่อ user ปัดออกจากหน้าเว็บ → auto PiP
+    // เมื่อ user ปัดออกจากหน้าเว็บ auto PiP
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden' && this.isActive && this.video) {
         // PiP จะทำงานต่อเมื่อ user ออกจาก browser
@@ -284,7 +284,7 @@ class PipManager {
   async start(): Promise<void> {
     if (this.isActive) return
 
-    // ลองตามลำดับ: HLS → Canvas PiP → Overlay
+    // ลองตามลำดับ: HLS Canvas PiP Overlay
     const hlsSuccess = await this.startHlsPip()
     if (hlsSuccess) return
 
@@ -300,13 +300,13 @@ class PipManager {
   // ============================================
   // MODE 1: HLS Video PiP (ลอยเหนือแอปจริง ทุก platform)
   // HLS URL มาจาก WebSocket data (VPS ส่งมา) ไม่ต้อง hardcode
-  // iOS Safari รองรับ HLS natively → video PiP ลอยได้
-  // Android Chrome → video PiP ลอยได้
-  // Desktop → video PiP ลอยได้
+  // iOS Safari รองรับ HLS natively video PiP ลอยได้
+  // Android Chrome video PiP ลอยได้
+  // Desktop video PiP ลอยได้
   // ============================================
 
   // Pre-load HLS video ทันทีที่ได้ URL จาก WebSocket
-  // เพื่อให้ตอนกด PiP ไม่ต้องรอ fetch/canplay → iOS gesture token ไม่หมดอายุ
+  // เพื่อให้ตอนกด PiP ไม่ต้องรอ fetch/canplay iOS gesture token ไม่หมดอายุ
   private preloadHlsVideo(): void {
     // Cleanup old one if URL changed
     this.cleanupHlsVideo()
@@ -327,9 +327,9 @@ class PipManager {
     this.hlsVideo.setAttribute('playsinline', '')
     this.hlsVideo.setAttribute('webkit-playsinline', '')
     this.hlsVideo.setAttribute('data-pip-manager', 'hls')
-    // ✅ ซ่อน controls: controlsList attribute (Chrome/Edge)
+    // ซ่อน controls: controlsList attribute (Chrome/Edge)
     this.hlsVideo.setAttribute('controlsList', 'nofullscreen nodownload noremoteplayback noplaybackrate')
-    // ✅ ซ่อน controls: x-webkit attributes
+    // ซ่อน controls: x-webkit attributes
     this.hlsVideo.setAttribute('x-webkit-airplay', 'deny')
     // ซ่อนจริงๆ — ไม่ให้ iOS เปิด native player ขึ้นมา
     this.hlsVideo.style.cssText = 'position:fixed;bottom:-100px;left:-100px;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-9999;'
@@ -370,15 +370,15 @@ class PipManager {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: 'TechTrade Signal',
         artist: 'Live Trading',
-        // ไม่ใส่ artwork → ลด UI clutter ใน PiP
+        // ไม่ใส่ artwork ลด UI clutter ใน PiP
       })
 
-      // ✅ บอก browser ว่ากำลังเล่นอยู่ → ไม่แสดง play button
+      // บอก browser ว่ากำลังเล่นอยู่ ไม่แสดง play button
       navigator.mediaSession.playbackState = 'playing'
 
       // iOS: ต้อง set handler เป็น function เปล่า (ไม่ใช่ null)
-      // null = ใช้ default → ปุ่มยังแสดง
-      // () => {} = override เป็นไม่ทำอะไร → ปุ่มหาย
+      // null = ใช้ default ปุ่มยังแสดง
+      // () => {} = override เป็นไม่ทำอะไร ปุ่มหาย
       const noop = () => {}
       const allActions: MediaSessionAction[] = [
         'seekbackward', 'seekforward',
@@ -418,7 +418,7 @@ class PipManager {
       return false
     }
 
-    // ถ้า video ยัง load ไม่เสร็จ → ลอง reload + รอสั้นๆ
+    // ถ้า video ยัง load ไม่เสร็จ ลอง reload + รอสั้นๆ
     if (!this.hlsReady && this.hlsVideo.readyState < 2) {
       this.hlsVideo.src = this.hlsUrl
       this.hlsVideo.load()
@@ -437,7 +437,7 @@ class PipManager {
     }
 
     try {
-      // ✅ Setup media session BEFORE entering PiP — ซ่อน controls ตั้งแต่แรก
+      // Setup media session BEFORE entering PiP — ซ่อน controls ตั้งแต่แรก
       this.setupViewOnlyMediaSession()
 
       await this.hlsVideo.play()
@@ -455,16 +455,16 @@ class PipManager {
       this.isActive = true
       this.notifyStateListeners(true)
 
-      // ✅ เรียกอีกรอบหลัง PiP เริ่ม — เผื่อ browser reset handlers
+      // เรียกอีกรอบหลัง PiP เริ่ม — เผื่อ browser reset handlers
       this.setupViewOnlyMediaSession()
 
-      // ✅ Keepalive: iOS อาจ reset playbackState — เซ็ตซ้ำทุก 2 วิ
+      // Keepalive: iOS อาจ reset playbackState — เซ็ตซ้ำทุก 2 วิ
       this.stopMediaSessionKeepalive()
       this.mediaSessionIntervalId = setInterval(() => {
         if ('mediaSession' in navigator) {
           navigator.mediaSession.playbackState = 'playing'
         }
-        // เผื่อ video ถูก pause โดย system → เล่นต่อ
+        // เผื่อ video ถูก pause โดย system เล่นต่อ
         if (this.hlsVideo && this.hlsVideo.paused) {
           this.hlsVideo.play().catch(() => {})
         }
@@ -606,7 +606,7 @@ class PipManager {
         justify-content: center;
         cursor: pointer;
       `
-      closeBtn.textContent = '✕'
+      closeBtn.textContent = ''
       closeBtn.addEventListener('click', () => this.stop())
 
       // สร้าง canvas
@@ -816,7 +816,7 @@ class PipManager {
     ctx.fillStyle = '#FFFFFF'
     ctx.font = 'bold 16px sans-serif'
     ctx.textAlign = 'left'
-    ctx.fillText('📊 TechTrade Signal', 10, 26)
+    ctx.fillText('TechTrade Signal', 10, 26)
 
     // Countdown
     ctx.textAlign = 'right'
@@ -850,7 +850,7 @@ class PipManager {
     // Status indicator
     if (config?.enabled === false) {
       ctx.fillStyle = COLORS.down
-      ctx.fillText('⏸', offsetX + width - 20, offsetY + 14)
+      ctx.fillText('', offsetX + width - 20, offsetY + 14)
     }
 
     // Active signal indicator
@@ -858,7 +858,7 @@ class PipManager {
       const isCall = data.active_signal.signal === 1 || data.active_signal.signal_type === 'CALL'
       ctx.fillStyle = isCall ? COLORS.callArrow : COLORS.putArrow
       ctx.font = 'bold 12px sans-serif'
-      ctx.fillText(isCall ? '▲' : '▼', offsetX + width - 35, offsetY + 14)
+      ctx.fillText(isCall ? '' : '', offsetX + width - 35, offsetY + 14)
     }
 
     // Adjust for header
@@ -965,7 +965,7 @@ class PipManager {
       // Price label
       ctx.fillStyle = lastCandle.close >= lastCandle.open ? COLORS.up : COLORS.down
       ctx.font = 'bold 9px monospace'
-      ctx.fillText(`►${lastCandle.close.toFixed(decimals)}`, offsetX + width - margin.right + 2, currentY - 5)
+      ctx.fillText(`${lastCandle.close.toFixed(decimals)}`, offsetX + width - margin.right + 2, currentY - 5)
     }
 
     // Draw signals

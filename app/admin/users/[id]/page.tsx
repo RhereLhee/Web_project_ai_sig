@@ -56,7 +56,7 @@ export default async function UserDetailPage({ params }: Props) {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">รายละเอียดสมาชิก</h1>
         <Link href="/admin/users" className="text-gray-500 hover:text-gray-700">
-          ← กลับ
+          กลับ
         </Link>
       </div>
 
@@ -66,7 +66,7 @@ export default async function UserDetailPage({ params }: Props) {
           <div>
             <h2 className="text-xl font-bold">{user.name || 'ไม่ระบุชื่อ'}</h2>
             <p className="text-gray-500">{user.email}</p>
-            {user.phone && <p className="text-sm text-gray-400">📱 {user.phone}</p>}
+            {user.phone && <p className="text-sm text-gray-400">{user.phone}</p>}
             <p className="text-sm text-gray-400 mt-1">ID: {user.id}</p>
           </div>
           <span className={`px-3 py-1 rounded-full text-sm font-medium ${
@@ -97,7 +97,7 @@ export default async function UserDetailPage({ params }: Props) {
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Partner Info */}
         <div className="bg-white rounded-lg border p-6">
-          <h3 className="font-semibold text-gray-900 mb-4">🤝 Partner</h3>
+          <h3 className="font-semibold text-gray-900 mb-4">Partner</h3>
           {user.partner ? (
             <div className="space-y-3">
               <div className="flex justify-between">
@@ -134,7 +134,7 @@ export default async function UserDetailPage({ params }: Props) {
 
         {/* Signal Info */}
         <div className="bg-white rounded-lg border p-6">
-          <h3 className="font-semibold text-gray-900 mb-4">📡 Signal Subscription</h3>
+          <h3 className="font-semibold text-gray-900 mb-4">Signal Subscription</h3>
           {user.signalSubscriptions.length > 0 ? (
             <div className="space-y-3">
               {user.signalSubscriptions.map((sub) => (
@@ -166,7 +166,7 @@ export default async function UserDetailPage({ params }: Props) {
 
         {/* Commissions */}
         <div className="bg-white rounded-lg border p-6">
-          <h3 className="font-semibold text-gray-900 mb-4">💰 คอมมิชชั่น</h3>
+          <h3 className="font-semibold text-gray-900 mb-4">คอมมิชชั่น</h3>
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div className="p-3 bg-gray-50 rounded-lg text-center">
               <p className="text-sm text-gray-500">รวมทั้งหมด</p>
@@ -193,7 +193,7 @@ export default async function UserDetailPage({ params }: Props) {
 
         {/* Recent Orders */}
         <div className="bg-white rounded-lg border p-6">
-          <h3 className="font-semibold text-gray-900 mb-4">💳 ออเดอร์ล่าสุด</h3>
+          <h3 className="font-semibold text-gray-900 mb-4">ออเดอร์ล่าสุด</h3>
           {user.orders.length > 0 ? (
             <div className="space-y-2 max-h-40 overflow-y-auto">
               {user.orders.slice(0, 5).map((order) => (
@@ -221,7 +221,7 @@ export default async function UserDetailPage({ params }: Props) {
 
         {/* Withdrawals */}
         <div className="bg-white rounded-lg border p-6 lg:col-span-2">
-          <h3 className="font-semibold text-gray-900 mb-4">💸 ประวัติถอนเงิน</h3>
+          <h3 className="font-semibold text-gray-900 mb-4">ประวัติถอนเงิน</h3>
           {user.withdrawals.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

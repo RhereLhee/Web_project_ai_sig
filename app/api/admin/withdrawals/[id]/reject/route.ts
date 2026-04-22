@@ -89,7 +89,7 @@ export async function POST(
           date: withdrawal.createdAt,
           reason: reason,
         })
-        console.log(`📧 Sent rejection email to ${withdrawal.user.email}`)
+        console.log(`Sent rejection email to ${withdrawal.user.email}`)
       } catch (emailError) {
         console.error('Failed to send rejection email:', emailError)
       }

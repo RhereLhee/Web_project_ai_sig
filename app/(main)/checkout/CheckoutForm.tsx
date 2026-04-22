@@ -101,7 +101,7 @@ export function CheckoutForm({ plan, user, isSignalPlan }: CheckoutFormProps) {
   if (step === 'success') {
     return (
       <div className="card text-center py-8">
-        <div className="text-6xl mb-4">✅</div>
+        <div className="text-6xl mb-4"></div>
         <h2 className="text-2xl font-bold text-gray-900 mb-2">ส่งคำสั่งซื้อสำเร็จ!</h2>
         <p className="text-gray-600 mb-6">
           เรากำลังตรวจสอบการชำระเงินของคุณ<br />
@@ -197,7 +197,7 @@ export function CheckoutForm({ plan, user, isSignalPlan }: CheckoutFormProps) {
         className="w-full p-4 border-2 border-gray-200 rounded-lg hover:border-emerald-500 hover:bg-emerald-50 transition-all text-left disabled:opacity-50"
       >
         <div className="flex items-center space-x-3">
-          <span className="text-3xl">📱</span>
+          <span className="text-3xl"></span>
           <div>
             <p className="font-semibold text-gray-900">สแกน QR Code</p>
             <p className="text-sm text-gray-600">PromptPay QR Code</p>
@@ -212,7 +212,7 @@ export function CheckoutForm({ plan, user, isSignalPlan }: CheckoutFormProps) {
         className="w-full p-4 border-2 border-gray-200 rounded-lg hover:border-emerald-500 hover:bg-emerald-50 transition-all text-left disabled:opacity-50"
       >
         <div className="flex items-center space-x-3">
-          <span className="text-3xl">🏦</span>
+          <span className="text-3xl"></span>
           <div>
             <p className="font-semibold text-gray-900">แอปธนาคาร</p>
             <p className="text-sm text-gray-600">เปิดแอปธนาคารเพื่อชำระ</p>
@@ -231,7 +231,7 @@ export function CheckoutForm({ plan, user, isSignalPlan }: CheckoutFormProps) {
       {/* Note */}
       <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
         <p className="text-sm text-blue-800">
-          💡 <strong>หมายเหตุ:</strong> หลังชำระเงินแล้ว กรุณาอัพโหลดสลิปเพื่อยืนยัน
+          <strong>หมายเหตุ:</strong> หลังชำระเงินแล้ว กรุณาอัพโหลดสลิปเพื่อยืนยัน
         </p>
       </div>
     </div>

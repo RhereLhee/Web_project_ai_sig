@@ -70,7 +70,7 @@ export function checkRateLimitMemory(
   
   const entry = inMemoryStore.get(cacheKey)
   
-  // ถ้าไม่มี entry หรือ entry เก่าเกินไป → reset
+  // ถ้าไม่มี entry หรือ entry เก่าเกินไป reset
   if (!entry || entry.windowStart < windowStart) {
     if (increment) {
       inMemoryStore.set(cacheKey, { count: 1, windowStart: now })
@@ -116,7 +116,7 @@ export async function checkRateLimit(
   key: string,
   action: string,
   config: RateLimitConfig,
-  increment: boolean = true  // ✅ เพิ่ม parameter นี้
+  increment: boolean = true  // เพิ่ม parameter นี้
 ): Promise<RateLimitResult> {
   const now = new Date()
   const windowStart = new Date(now.getTime() - config.windowMinutes * 60 * 1000)
@@ -134,7 +134,7 @@ export async function checkRateLimit(
   const remaining = Math.max(0, config.maxAttempts - count - (increment ? 1 : 0))
   const resetAt = new Date(now.getTime() + config.windowMinutes * 60 * 1000)
   
-  // ✅ บันทึก attempt เฉพาะเมื่อ increment = true และ allowed
+  // บันทึก attempt เฉพาะเมื่อ increment = true และ allowed
   if (allowed && increment) {
     await prisma.rateLimitLog.create({
       data: {
@@ -218,7 +218,7 @@ export async function checkAccountLockout(userId: string): Promise<LockoutResult
   
   const now = new Date()
   
-  // ถ้า lock หมดอายุแล้ว → reset
+  // ถ้า lock หมดอายุแล้ว reset
   if (user.lockedUntil && user.lockedUntil <= now) {
     await prisma.user.update({
       where: { id: userId },
@@ -268,7 +268,7 @@ export async function recordFailedLogin(userId: string): Promise<LockoutResult> 
   
   const remainingAttempts = Math.max(0, LOCKOUT_CONFIG.maxFailedAttempts - user.failedLoginAttempts)
   
-  // ถ้าเกิน limit → lock account
+  // ถ้าเกิน limit lock account
   if (user.failedLoginAttempts >= LOCKOUT_CONFIG.maxFailedAttempts) {
     const lockedUntil = new Date(Date.now() + LOCKOUT_CONFIG.lockoutMinutes * 60 * 1000)
     

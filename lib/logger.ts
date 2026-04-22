@@ -176,7 +176,7 @@ class Logger {
 
     if (!host || !user || !pass) return
 
-    const emoji = entry.level === 'fatal' ? '🚨' : '⚠️'
+    const emoji = entry.level === 'fatal' ? '' : ''
     const appName = process.env.NEXT_PUBLIC_SITE_NAME || 'TechTrade'
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
 

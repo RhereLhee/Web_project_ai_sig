@@ -1,6 +1,6 @@
 // app/api/health/route.ts
 // Health Check API — ใช้ร่วมกับ UptimeRobot/Cron เพื่อตรวจสอบว่าเว็บยังทำงานอยู่
-// ถ้าเว็บล่ม → UptimeRobot จะแจ้ง Telegram/LINE/Email ทันที
+// ถ้าเว็บล่ม UptimeRobot จะแจ้ง Telegram/LINE/Email ทันที
 
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'

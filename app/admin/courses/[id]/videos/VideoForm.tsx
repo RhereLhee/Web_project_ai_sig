@@ -12,6 +12,7 @@ export function VideoForm({ courseId, sectionId }: Props) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState("")
+  const [messageType, setMessageType] = useState<'success' | 'error' | null>(null)
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -40,17 +41,20 @@ export function VideoForm({ courseId, sectionId }: Props) {
     e.preventDefault()
     
     if (!formData.title.trim()) {
-      setMessage("⚠️ กรุณากรอกชื่อวิดีโอ")
+      setMessage("กรุณากรอกชื่อวิดีโอ")
+      setMessageType('error')
       return
     }
 
     if (!videoId) {
-      setMessage("⚠️ YouTube URL ไม่ถูกต้อง")
+      setMessage("YouTube URL ไม่ถูกต้อง")
+      setMessageType('error')
       return
     }
 
     setLoading(true)
     setMessage("")
+    setMessageType(null)
 
     try {
       const res = await fetch('/api/admin/videos', {
@@ -69,23 +73,29 @@ export function VideoForm({ courseId, sectionId }: Props) {
       const data = await res.json()
 
       if (res.ok) {
-        setMessage("✅ เพิ่มวิดีโอสำเร็จ")
+        setMessage("เพิ่มวิดีโอสำเร็จ")
+        setMessageType('success')
         setFormData({ title: '', description: '', url: '' })
         router.refresh()
       } else {
-        setMessage(`⚠️ ${data.error || 'เกิดข้อผิดพลาด'}`)
+        setMessage(`${data.error || 'เกิดข้อผิดพลาด'}`)
+        setMessageType('error')
       }
     } catch {
-      setMessage("⚠️ เกิดข้อผิดพลาด")
+      setMessage("เกิดข้อผิดพลาด")
+      setMessageType('error')
     } finally {
       setLoading(false)
-      setTimeout(() => setMessage(""), 3000)
+      setTimeout(() => {
+        setMessage("")
+        setMessageType(null)
+      }, 3000)
     }
   }
 
   return (
     <div className="bg-white rounded-lg border p-6 sticky top-6">
-      <h2 className="text-lg font-semibold text-gray-900 mb-4">➕ เพิ่มวิดีโอใหม่</h2>
+      <h2 className="text-lg font-semibold text-gray-900 mb-4">เพิ่มวิดีโอใหม่</h2>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* YouTube URL */}
@@ -104,7 +114,7 @@ export function VideoForm({ courseId, sectionId }: Props) {
             <p className="text-xs text-red-500 mt-1">URL ไม่ถูกต้อง</p>
           )}
           {videoId && (
-            <p className="text-xs text-emerald-600 mt-1">✓ Video ID: {videoId}</p>
+            <p className="text-xs text-emerald-600 mt-1">Video ID: {videoId}</p>
           )}
         </div>
 
@@ -151,8 +161,8 @@ export function VideoForm({ courseId, sectionId }: Props) {
         {/* Message */}
         {message && (
           <div className={`p-3 rounded-lg text-sm ${
-            message.includes('✅') 
-              ? 'bg-emerald-50 text-emerald-700' 
+            messageType === 'success'
+              ? 'bg-emerald-50 text-emerald-700'
               : 'bg-yellow-50 text-yellow-700'
           }`}>
             {message}
@@ -165,18 +175,18 @@ export function VideoForm({ courseId, sectionId }: Props) {
           disabled={loading || !videoId || !formData.title.trim()}
           className="w-full px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? 'กำลังเพิ่ม...' : '➕ เพิ่มวิดีโอ'}
+          {loading ? 'กำลังเพิ่ม...' : 'เพิ่มวิดีโอ'}
         </button>
       </form>
 
       {/* Help */}
       <div className="mt-4 p-3 bg-blue-50 rounded-lg">
         <p className="text-xs text-blue-700">
-          <strong>💡 วิธีใช้:</strong><br />
+          <strong>วิธีใช้:</strong><br />
           1. Copy URL จาก YouTube<br />
           2. วาง URL ในช่องด้านบน<br />
           3. ตั้งชื่อวิดีโอ<br />
-          4. กดเพิ่ม → ขึ้นหน้า User ทันที
+          4. กดเพิ่ม ขึ้นหน้า User ทันที
         </p>
       </div>
     </div>

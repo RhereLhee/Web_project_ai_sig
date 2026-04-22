@@ -109,6 +109,6 @@ export default async function CheckoutPage({
     )
   }
 
-  // ถ้าไม่ใช่ Signal Plan → redirect ไปหน้า pricing
+  // ถ้าไม่ใช่ Signal Plan redirect ไปหน้า pricing
   redirect("/pricing")
 }

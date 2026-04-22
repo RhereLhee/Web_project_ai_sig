@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     })
 
     if (!user || !user.password) {
-      // ❌ Login ผิด → นับ Rate Limit
+      // Login ผิด นับ Rate Limit
       await checkRateLimit(ip, 'LOGIN', RATE_LIMITS.LOGIN, true)
       
       return NextResponse.json(
@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
     const validPassword = await bcrypt.compare(password, user.password)
     
     if (!validPassword) {
-      // ❌ Login ผิด → นับ Rate Limit
+      // Login ผิด นับ Rate Limit
       await checkRateLimit(ip, 'LOGIN', RATE_LIMITS.LOGIN, true)
       
       const result = await recordFailedLogin(user.id)
@@ -167,7 +167,7 @@ export async function POST(req: NextRequest) {
       const totpResult = await verify2FALogin(user.id, totpCode)
       
       if (!totpResult.success) {
-        // ❌ 2FA ผิด → นับ Rate Limit
+        // 2FA ผิด นับ Rate Limit
         await checkRateLimit(ip, 'LOGIN', RATE_LIMITS.LOGIN, true)
         
         await recordLoginHistory({
@@ -186,13 +186,13 @@ export async function POST(req: NextRequest) {
     }
 
     // ============================================
-    // 7. LOGIN SUCCESS ✅
+    // 7. LOGIN SUCCESS 
     // ============================================
     
     // Reset failed attempts
     await resetFailedLogins(user.id)
     
-    // ✅ Login สำเร็จ → Reset Rate Limit ของ IP นี้
+    // Login สำเร็จ Reset Rate Limit ของ IP นี้
     try {
       await resetRateLimit(ip, 'LOGIN')
     } catch (e) {

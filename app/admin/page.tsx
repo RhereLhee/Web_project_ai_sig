@@ -77,7 +77,7 @@ export default async function AdminDashboard() {
       {/* Alerts */}
       {(stats.pendingWithdrawals > 0 || stats.pendingOrders > 0) && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <h2 className="font-semibold text-yellow-800 mb-2">⚠️ ต้องดำเนินการ</h2>
+          <h2 className="font-semibold text-yellow-800 mb-2">ต้องดำเนินการ</h2>
           <div className="flex flex-wrap gap-4 text-sm">
             {stats.pendingWithdrawals > 0 && (
               <Link href="/admin/withdrawals" className="text-yellow-700 hover:underline">
@@ -120,19 +120,19 @@ export default async function AdminDashboard() {
       {/* Quick Actions */}
       <div className="grid md:grid-cols-6 gap-3">
         <Link href="/admin/users" className="bg-white p-4 rounded-lg border hover:shadow-md transition-shadow text-center">
-          <span className="text-2xl">👥</span>
+          <span className="text-2xl"></span>
           <p className="text-sm font-medium mt-1">สมาชิก</p>
         </Link>
         <Link href="/admin/partners" className="bg-white p-4 rounded-lg border hover:shadow-md transition-shadow text-center">
-          <span className="text-2xl">🤝</span>
+          <span className="text-2xl"></span>
           <p className="text-sm font-medium mt-1">Partners</p>
         </Link>
         <Link href="/admin/orders" className="bg-white p-4 rounded-lg border hover:shadow-md transition-shadow text-center">
-          <span className="text-2xl">💳</span>
+          <span className="text-2xl"></span>
           <p className="text-sm font-medium mt-1">ออเดอร์</p>
         </Link>
         <Link href="/admin/withdrawals" className="bg-white p-4 rounded-lg border hover:shadow-md transition-shadow text-center relative">
-          <span className="text-2xl">💸</span>
+          <span className="text-2xl"></span>
           <p className="text-sm font-medium mt-1">ถอนเงิน</p>
           {stats.pendingWithdrawals > 0 && (
             <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
@@ -141,11 +141,11 @@ export default async function AdminDashboard() {
           )}
         </Link>
         <Link href="/admin/courses" className="bg-white p-4 rounded-lg border hover:shadow-md transition-shadow text-center">
-          <span className="text-2xl">📚</span>
+          <span className="text-2xl"></span>
           <p className="text-sm font-medium mt-1">คอร์ส</p>
         </Link>
         <Link href="/admin/settings" className="bg-white p-4 rounded-lg border hover:shadow-md transition-shadow text-center">
-          <span className="text-2xl">⚙️</span>
+          <span className="text-2xl"></span>
           <p className="text-sm font-medium mt-1">ตั้งค่า</p>
         </Link>
       </div>
