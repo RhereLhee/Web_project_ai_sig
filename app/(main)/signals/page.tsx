@@ -2,6 +2,7 @@
 import { getUserWithSubscription, hasSignalAccess } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { SignalRoomWithProvider } from "@/components/SignalRoomWithProvider"
+import { FreeSignalRoom } from "@/components/FreeSignalRoom"
 import { SignalPackages } from "./SignalPackages"
 import { prisma } from "@/lib/prisma"
 import { isFreeTrial, getFreeTrialDays } from "@/lib/system-settings"
@@ -19,7 +20,11 @@ export const SIGNAL_PLANS = [
 
 export const REFERRAL_DISCOUNT = 300
 
-export default async function SignalsPage() {
+interface Props {
+  searchParams: Promise<{ upgrade?: string }>
+}
+
+export default async function SignalsPage({ searchParams }: Props) {
   let user = await getUserWithSubscription()
   if (!user) redirect("/login")
 
@@ -31,7 +36,6 @@ export default async function SignalsPage() {
   if (!hasSignal) {
     const freeTrialOn = await isFreeTrial()
     if (freeTrialOn) {
-      // เช็คว่าเคยได้ free trial ไปแล้วหรือยัง (price = 0)
       const existingTrial = await prisma.signalSubscription.findFirst({
         where: { userId: user.id, price: 0 },
       })
@@ -58,72 +62,82 @@ export default async function SignalsPage() {
           metadata: { trialDays, endDate: endDate.toISOString() },
         })
 
-        // Refresh user data
         user = (await getUserWithSubscription())!
         hasSignal = hasSignalAccess(user)
       }
     }
   }
 
-  // เช็คว่ามี referral หรือไม่
+  // ============================================
+  // Full Signal Access — unchanged
+  // ============================================
+  if (hasSignal) {
+    return <SignalRoomWithProvider user={user as any} />
+  }
+
+  // ============================================
+  // No Signal Access → FREE PLAN + purchase packages below it
+  // ============================================
+  const params = await searchParams
+  const showUpgradeOnly = params.upgrade === '1'
+
   const fullUser = await prisma.user.findUnique({
     where: { id: user.id },
     select: { referredById: true },
   })
   const hasReferral = !!fullUser?.referredById
 
-  // ============================================
-  // ถ้ายังไม่มี Signal แสดงหน้าซื้อแพ็คเกจ
-  // ============================================
-  if (!hasSignal) {
-    return (
-      <div className="space-y-4 md:space-y-6">
-        {/* Header */}
-        <div className="bg-white rounded-xl shadow-sm p-4 md:p-6">
-          <h1 className="text-lg md:text-xl font-bold text-gray-900">Signal Room</h1>
-          <p className="text-sm text-gray-500 mt-1">เลือกแพ็คเกจเพื่อเข้าถึงสัญญาณเทรด AI</p>
-        </div>
+  return (
+    <div className="space-y-6">
+      {/* FREE PLAN live room — gated by 20:00–21:00 + 10/day + EU/UJ only */}
+      {!showUpgradeOnly && <FreeSignalRoom />}
 
-        {/* Packages */}
-        <SignalPackages 
-          plans={SIGNAL_PLANS} 
+      {/* Packages */}
+      <div className="bg-white rounded-xl shadow-sm p-4 md:p-6">
+        <h2 className="font-semibold text-gray-900 mb-1">ปลดล็อกแบบเต็ม</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          ดู 6 คู่เงินตลอดเวลา ไม่มีจำกัด พร้อมเสียงแจ้งเตือนและ Picture-in-Picture
+        </p>
+        <SignalPackages
+          plans={SIGNAL_PLANS}
           hasReferral={hasReferral}
           referralDiscount={REFERRAL_DISCOUNT}
         />
+      </div>
 
-        {/* FAQ */}
-        <div className="bg-white rounded-xl shadow-sm p-4 md:p-6">
-          <h2 className="font-semibold text-gray-900 mb-4">คำถามที่พบบ่อย</h2>
-          <div className="space-y-4">
-            <div>
-              <h3 className="font-medium text-gray-900">Signal คืออะไร?</h3>
-              <p className="text-sm text-gray-500 mt-1">
-                Signal คือสัญญาณเทรดที่ AI วิเคราะห์จากข้อมูลตลาดแบบ Real-time 
-                บอกจุด Entry และทิศทางที่ควรเทรด
-              </p>
-            </div>
-            <div>
-              <h3 className="font-medium text-gray-900">Win Rate เท่าไหร่?</h3>
-              <p className="text-sm text-gray-500 mt-1">
-                Win Rate เฉลี่ยอยู่ที่ 82-85% จาก Forward Test จริง 
-                สามารถดูสถิติย้อนหลังได้หลังสมัคร
-              </p>
-            </div>
-            <div>
-              <h3 className="font-medium text-gray-900">ใช้งานยากไหม?</h3>
-              <p className="text-sm text-gray-500 mt-1">
-                ใช้งานง่ายมาก แค่รอ Signal แล้วเทรดตาม 
-                มีคู่มือและทีมซัพพอร์ตช่วยเหลือตลอด
-              </p>
-            </div>
+      {/* FAQ */}
+      <div className="bg-white rounded-xl shadow-sm p-4 md:p-6">
+        <h2 className="font-semibold text-gray-900 mb-4">คำถามที่พบบ่อย</h2>
+        <div className="space-y-4">
+          <div>
+            <h3 className="font-medium text-gray-900">FREE PLAN ใช้ได้ตอนไหน?</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              เปิดให้ดูฟรีทุกวันเวลา 20:00–21:00 (เวลาไทย) เฉพาะคู่ EURUSD และ USDJPY จำกัด 10 สัญญาณ/วัน
+            </p>
+          </div>
+          <div>
+            <h3 className="font-medium text-gray-900">Signal คืออะไร?</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Signal คือสัญญาณเทรดที่ AI วิเคราะห์จากข้อมูลตลาดแบบ Real-time
+              บอกจุด Entry และทิศทางที่ควรเทรด
+            </p>
+          </div>
+          <div>
+            <h3 className="font-medium text-gray-900">Win Rate เท่าไหร่?</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Win Rate เฉลี่ยอยู่ที่ 82-85% จาก Forward Test จริง
+              สามารถดูสถิติย้อนหลังได้หลังสมัคร
+            </p>
+          </div>
+          <div>
+            <h3 className="font-medium text-gray-900">ใช้งานยากไหม?</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              ใช้งานง่ายมาก แค่รอ Signal แล้วเทรดตาม
+              มีคู่มือและทีมซัพพอร์ตช่วยเหลือตลอด
+            </p>
           </div>
         </div>
       </div>
-    )
-  }
-
-  // ============================================
-  // ถ้ามี Signal แล้ว แสดง Signal Room (ครอบ PipProvider ให้แน่ใจ)
-  // ============================================
-  return <SignalRoomWithProvider user={user as any} />
+    </div>
+  )
 }

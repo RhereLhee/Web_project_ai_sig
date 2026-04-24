@@ -1,11 +1,12 @@
 // app/api/withdraw/route.ts
 // User-initiated withdrawal request.
-// Requires: SMS OTP, active Signal + Partner subscription, phone-locked bank account.
+// Requires: SMS OTP, phone-locked bank account, Partner bank info on file.
+// No Partner-purchase or Signal-subscription gate — anyone with bank info and a balance can withdraw.
 // Balance taken from LedgerEntry. Commissions reserved atomically (AVAILABLE → HOLDING).
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/jwt'
-import { getUserWithSubscription, hasActiveSubscription, hasSignalAccess } from '@/lib/auth'
+import { getUserWithSubscription } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { formatPhoneNumber } from '@/lib/sms'
 import { createWithdrawal, WithdrawalError } from '@/lib/withdrawal'
@@ -23,13 +24,6 @@ export async function POST(req: NextRequest) {
     const user = await getUserWithSubscription()
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
-    }
-
-    if (!hasActiveSubscription(user) || !hasSignalAccess(user)) {
-      return NextResponse.json(
-        { error: 'ต้องมีทั้ง Signal Access และ PRO Subscription ถึงจะถอนเงินได้' },
-        { status: 403 },
-      )
     }
 
     const { amount, bankCode, accountNumber, accountName, otpCode } = await req.json()
@@ -129,11 +123,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Partner
+    // Partner record holds the bank info + phone lock. No purchase required.
     const partner = await prisma.partner.findUnique({ where: { userId: user.id } })
     if (!partner) {
       return NextResponse.json(
-        { error: 'ไม่พบข้อมูล Partner กรุณาสมัคร Partner ก่อน' },
+        { error: 'กรุณาลงทะเบียนบัญชีธนาคารก่อนทำการถอนเงิน', code: 'NO_BANK_INFO' },
         { status: 400 },
       )
     }

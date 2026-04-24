@@ -420,6 +420,70 @@ git pull
 
 ---
 
+## Product Changes (25 เม.ย. 2026)
+
+### Partner gate removed
+
+ไม่มีการ "ซื้อ Partner" อีกต่อไป — `hasActivePartner()` ใน `lib/auth.ts` return `true`
+สำหรับ user ที่ล็อกอิน (backward compat). Gate ใน withdraw routes + profile/withdraw
+page ถูกถอดออก. ใครลงทะเบียนบัญชีธนาคาร (`/partner` → `BankInfoForm`) และมียอด
+ในกระเป๋าจะถอนได้. Sidebar badge "Partner" อิงจาก `hasPartnerBankInfo(user)` ใหม่
+(คือมี `partner.bankName` + `accountNumber` + `accountName` ครบ).
+
+- API ใหม่: `POST /api/partner/register` — สร้าง/อัพเดท Partner record (free,
+  status=ACTIVE, endDate=null). ถ้าเบอร์ถูกล็อคหลังถอนครั้งแรก จะไม่ยอมให้เปลี่ยน
+  บัญชีเอง ต้องติดต่อแอดมิน
+- API `POST /api/partner/checkout` ตอนนี้ส่ง 410 Gone (legacy)
+- หน้า `/partner/checkout` redirect กลับ `/partner`
+- Partner table ยังอยู่เหมือนเดิม (มี status/endDate/price) — เผื่ออนาคตจะเปิด
+  paid tier อีก สามารถกลับหลักการเก่าได้ด้วยการ revert `hasActivePartner`
+
+### FREE PLAN (Acquisition)
+
+ดูฟรีทุกวัน **20:00–21:00 Asia/Bangkok** ผ่านหน้า `/signals` สำหรับ user ที่ไม่มี
+signal subscription:
+
+- **Pairs:** EURUSD + USDJPY เท่านั้น (อีก 4 คู่โชว์ overlay "ปลดล็อกเมื่อสมัคร")
+- **Cap:** 10 สัญญาณ/วัน นับ global (ทั้งระบบรวมกัน) แสดงเป็น "X/10" + progress bar
+- **PIP:** ปิด (`isPipSupported = false`)
+- **Sound:** ปิด (`playSignalAlert()` skip ถ้า `disableSound=true`)
+- **Lock:** เมื่อถึง 10/10 หน้าจะเปลี่ยนเป็น state "ครบโควตา" พร้อมนับถอยหลังวันถัดไป
+- **Outside window:** โชว์ countdown ถึง 20:00 ของวันถัดไป
+
+Canonical files:
+- `lib/free-window.ts` — constants (`FREE_WINDOW_START_HOUR=20`, `FREE_DAILY_LIMIT=10`,
+  `FREE_PAIR_SYMBOLS=['EURUSDm','USDJPYm']`) + Bangkok TZ helpers (`isInFreeWindow`,
+  `getTodayKeyBkk`, `secondsUntilFreeWindowEnd/Start`, `isAllowedFreePair`)
+- `prisma/schema.prisma` — `FreeSignalObservation { date, symbol, entryTime, createdAt }`
+  กับ `@@unique([date, symbol, entryTime])` — DB เป็นตัว dedupe. `count()` per date
+  คือค่า "X/10"
+- `app/api/signals/free-status/route.ts` — `GET` คืน `{inWindow, count, limit, pairs,
+  secondsUntilEnd, secondsUntilStart, closed}`
+- `app/api/signals/free-observe/route.ts` — `POST {symbol, entryTime}` — client call
+  ทุกครั้งที่เห็น signal ใหม่ในช่วง window. Reject ถ้า pair ไม่ใช่ EU/UJ, ถ้า outside
+  window, หรือถ้าเกิน 10/วัน
+- `components/FreeSignalRoom.tsx` — wrapper ครอบ `PipProvider` + `SignalRoomContent`
+  จัดการ polling status, countdown, counter, locked state
+- `components/PipProvider.tsx` — รับ props ใหม่: `disableSound`, `freePlanActive`,
+  `allowedPairs`, `onNewSignal`. Filter symbols ก่อน set state + skip sound + กด PiP
+  แล้วไม่มีผล
+- `components/SignalRoomContent.tsx` — แสดง overlay "ปลดล็อกเมื่อสมัครแพ็กเกจ" สำหรับ
+  pair ที่ไม่ใช่ EU/UJ เมื่อ `freePlanActive=true`
+- `app/(main)/signals/page.tsx` — render `<FreeSignalRoom />` เมื่อ `!hasSignal`,
+  ยังโชว์ `<SignalPackages />` ข้างล่าง
+
+**ข้อควรรู้สำหรับ AI รุ่นถัดไป:**
+- ถ้าอยากเปลี่ยน window / limit / pairs แก้ที่ `lib/free-window.ts` ที่เดียว
+- `FreeSignalObservation` ควรถูก purge เป็นระยะ (เก็บ ~30-60 วัน) — TODO ใส่ใน
+  `/api/cron/cleanup`
+- `count` เป็น global ไม่ใช่ per-user — ถ้าจะเปลี่ยนเป็น per-user ต้องเพิ่ม `userId`
+  ในตารางและ query
+- Dedupe อิง `(date, symbol, entryTime)` — ถ้าต้นทาง broker ส่ง `entry_time` แบบ
+  inconsistent (timezone string vs epoch) อาจมี double-count. ตอนนี้ใช้ string
+  verbatim จาก `active_signal.entry_time || trades[0].entry_time`
+
+---
+
 ## Banking-Grade Money System (Updated 24 เม.ย. 2026)
 
 การเงินทุกจุด (affiliate, VIP/Partner/Signal order, semi-auto slip verify, withdraw) ถูก rewrite
@@ -532,8 +596,10 @@ PROMPTPAY_ID=<Thai National ID or phone>
 
 ### Remaining follow-ups สำหรับ AI รุ่นถัดไป
 
-1. **Migration ยังไม่ถูกรันบน production DB** — ไฟล์คือ
-   `prisma/migrations/20260423120000_banking_grade_money/migration.sql`
+1. **Migrations ยังไม่ถูกรันบน production DB** — ไฟล์คือ
+   - `prisma/migrations/20260423120000_banking_grade_money/migration.sql`
+   - `prisma/migrations/20260425100000_free_signal_observation/migration.sql` (FREE PLAN counter)
+
    รันด้วย `npx prisma migrate deploy` หลัง backup (มี backfill: existing orders จะได้
    `expectedAmountSatang = finalAmount`, `amountSuffix = 0`)
 2. **Frontend checkout page** ต้องโชว์ยอดจาก `expectedAmount` (baht) ที่ API ส่งกลับมาแล้ว

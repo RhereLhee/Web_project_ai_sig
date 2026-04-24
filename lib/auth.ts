@@ -70,12 +70,19 @@ export async function getUserWithSubscription(): Promise<UserWithSub | null> {
   }
 }
 
-// ตรวจว่ามี Partner Active
+// Partner gate removed: anyone logged in counts as "active partner".
+// Partner table is still used for bank-info / withdrawal metadata only.
+// To restore paid-Partner gating, revert this helper to its status+endDate check.
 export function hasActivePartner(user: UserWithSub | null): boolean {
+  return !!user
+}
+
+// True when the user has actually registered Partner bank info.
+// Use this (not hasActivePartner) when you need to verify bank details exist
+// before allowing a withdrawal.
+export function hasPartnerBankInfo(user: UserWithSub | null): boolean {
   if (!user || !user.partner) return false
-  if (user.partner.status !== 'ACTIVE') return false
-  if (!user.partner.endDate) return true
-  return new Date(user.partner.endDate) > new Date()
+  return !!(user.partner.bankName && user.partner.accountNumber && user.partner.accountName)
 }
 
 // ตรวจว่ามี Signal Access (Signal Room)
@@ -99,10 +106,11 @@ export async function requireAdmin() {
 }
 
 // ใช้สำหรับหน้าที่ต้องมี Partner
+// Partner gate is removed — this now only enforces login.
+// Preserved for backward compatibility with existing callers.
 export async function requirePartner() {
   const user = await getUserWithSubscription()
   if (!user) redirect('/login')
-  if (!hasActivePartner(user)) redirect('/partner')
   return user
 }
 

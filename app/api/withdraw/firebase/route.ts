@@ -1,10 +1,11 @@
 // app/api/withdraw/firebase/route.ts
 // Firebase-auth withdraw flow (no SMS OTP; phone lock enforced via Partner.withdrawPhone).
 // Uses the same banking-grade helpers as /api/withdraw for ledger + commission reservation.
+// No Partner-purchase gate — anyone with Partner bank info on file and a balance can withdraw.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/jwt'
-import { getUserWithSubscription, hasActivePartner } from '@/lib/auth'
+import { getUserWithSubscription } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { createWithdrawal, WithdrawalError } from '@/lib/withdrawal'
 import { getMinWithdrawSatang } from '@/lib/system-settings'
@@ -24,13 +25,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    if (!hasActivePartner(user)) {
-      return NextResponse.json(
-        { error: 'ต้องเป็น Partner ถึงจะถอนเงินได้' },
-        { status: 403 },
-      )
-    }
-
     const { amount, phone, bankCode, accountNumber, accountName } = await req.json()
 
     if (!bankCode || !accountNumber || !accountName) {
@@ -40,9 +34,13 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Partner record holds bank info + phone lock. No purchase required.
     const partner = await prisma.partner.findUnique({ where: { userId: user.id } })
     if (!partner) {
-      return NextResponse.json({ error: 'ไม่พบข้อมูล Partner' }, { status: 404 })
+      return NextResponse.json(
+        { error: 'กรุณาลงทะเบียนบัญชีธนาคารก่อนทำการถอนเงิน', code: 'NO_BANK_INFO' },
+        { status: 400 },
+      )
     }
 
     const userData = await prisma.user.findUnique({

@@ -1,19 +1,16 @@
-import { getUserWithSubscription, hasActiveSubscription, hasSignalAccess } from "@/lib/auth"
+// app/(main)/profile/withdraw/page.tsx
+// Withdrawal page — no Partner/Signal gate. Anyone with bank info + balance can withdraw.
+import { getUserWithSubscription } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import Link from "next/link"
+import { getUserAffiliateBalance, getUserLifetimeEarnings } from "@/lib/affiliate"
 import { WithdrawForm } from "./WithdrawForm"
 
 async function getWithdrawStats(userId: string) {
-  const [pendingAmount, totalCommission, recentWithdrawals] = await Promise.all([
-    prisma.commission.aggregate({
-      where: { userId, status: 'PENDING' },
-      _sum: { amount: true },
-    }),
-    prisma.commission.aggregate({
-      where: { userId },
-      _sum: { amount: true },
-    }),
+  const [available, total, recentWithdrawals] = await Promise.all([
+    getUserAffiliateBalance(userId),
+    getUserLifetimeEarnings(userId),
     prisma.withdrawal.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
@@ -22,8 +19,8 @@ async function getWithdrawStats(userId: string) {
   ])
 
   return {
-    available: pendingAmount._sum.amount || 0,
-    total: totalCommission._sum.amount || 0,
+    available,
+    total,
     recentWithdrawals,
   }
 }
@@ -32,14 +29,12 @@ export default async function WithdrawPage() {
   const user = await getUserWithSubscription()
   if (!user) redirect("/login")
 
-  const hasSub = hasActiveSubscription(user)
-  const hasSignal = hasSignalAccess(user)
   const stats = await getWithdrawStats(user.id)
-
-  // เช็คเงื่อนไขการถอน
-  const canWithdraw = hasSub && hasSignal
-  const availableBalance = stats.available / 100 // แปลงเป็นบาท
+  const availableBalance = stats.available / 100 // สตางค์ → บาท
   const minWithdraw = 350
+
+  // Bank info presence check (no gate by subscription anymore).
+  const hasBankInfo = !!(user.partner?.bankName && user.partner?.accountNumber && user.partner?.accountName)
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -59,30 +54,17 @@ export default async function WithdrawPage() {
         </div>
       </div>
 
-      {/* Withdrawal Conditions */}
-      {!canWithdraw && (
+      {/* Missing bank info */}
+      {!hasBankInfo && (
         <div className="card bg-yellow-50 border-yellow-200">
           <div className="flex items-start space-x-3">
-            <span className="text-3xl"></span>
             <div className="flex-1">
-              <h3 className="font-semibold text-yellow-800 mb-2">เงื่อนไขการถอนเงิน</h3>
+              <h3 className="font-semibold text-yellow-800 mb-2">ยังไม่ได้ลงทะเบียนบัญชีธนาคาร</h3>
               <p className="text-sm text-yellow-700 mb-3">
-                คุณต้องมีทั้ง <strong>Signal Access</strong> และ <strong>PRO Subscription</strong> ถึงจะถอนเงินได้
+                ไปที่หน้า Partner เพื่อลงทะเบียนบัญชีธนาคารที่จะใช้รับเงิน (ฟรี ไม่ต้องสมัครสมาชิก)
               </p>
-              
-              <div className="space-y-2 mb-4">
-                <div className={`flex items-center space-x-2 ${hasSignal ? 'text-green-700' : 'text-red-700'}`}>
-                  <span>{hasSignal ? '' : ''}</span>
-                  <span className="text-sm">Signal Access</span>
-                </div>
-                <div className={`flex items-center space-x-2 ${hasSub ? 'text-green-700' : 'text-red-700'}`}>
-                  <span>{hasSub ? '' : ''}</span>
-                  <span className="text-sm">PRO Subscription</span>
-                </div>
-              </div>
-              
-              <Link href="/pricing" className="btn btn-primary btn-sm">
-                ดูแพ็กเกจ
+              <Link href="/partner" className="btn btn-primary btn-sm">
+                ลงทะเบียนบัญชีธนาคาร
               </Link>
             </div>
           </div>
@@ -90,14 +72,13 @@ export default async function WithdrawPage() {
       )}
 
       {/* Minimum Withdraw Warning */}
-      {canWithdraw && availableBalance < minWithdraw && (
+      {hasBankInfo && availableBalance < minWithdraw && (
         <div className="card bg-orange-50 border-orange-200">
           <div className="flex items-start space-x-3">
-            <span className="text-2xl"></span>
             <div>
               <h3 className="font-semibold text-orange-800 mb-1">ยอดเงินไม่ถึงขั้นต่ำ</h3>
               <p className="text-sm text-orange-700">
-                ยอดคงเหลือขั้นต่ำในการถอนคือ <strong>฿{minWithdraw}</strong> 
+                ยอดคงเหลือขั้นต่ำในการถอนคือ <strong>฿{minWithdraw}</strong>
                 <br />
                 คุณมียอดคงเหลือ <strong>฿{availableBalance}</strong> ต้องมีอีก <strong>฿{(minWithdraw - availableBalance).toFixed(2)}</strong>
               </p>
@@ -107,11 +88,11 @@ export default async function WithdrawPage() {
       )}
 
       {/* Withdraw Form */}
-      {canWithdraw && availableBalance >= minWithdraw && (
+      {hasBankInfo && availableBalance >= minWithdraw && (
         <div className="card">
           <h2 className="font-semibold text-gray-900 mb-4">แบบฟอร์มถอนเงิน</h2>
-          <WithdrawForm 
-            userId={user.id} 
+          <WithdrawForm
+            userId={user.id}
             availableBalance={availableBalance}
             minWithdraw={minWithdraw}
           />
@@ -121,7 +102,7 @@ export default async function WithdrawPage() {
       {/* Recent Withdrawals */}
       <div className="card">
         <h2 className="font-semibold text-gray-900 mb-4">ประวัติการถอน</h2>
-        
+
         {stats.recentWithdrawals.length === 0 ? (
           <p className="text-gray-500 text-center py-6">ยังไม่มีประวัติการถอน</p>
         ) : (
@@ -159,7 +140,7 @@ export default async function WithdrawPage() {
         <h3 className="font-semibold text-blue-900 mb-2">หมายเหตุ</h3>
         <ul className="text-sm text-blue-800 space-y-1">
           <li>• ขั้นต่ำในการถอนคือ ฿{minWithdraw} ต่อครั้ง</li>
-          <li>• ต้องมีทั้ง Signal Access และ PRO Subscription</li>
+          <li>• ต้องมีบัญชีธนาคารลงทะเบียนไว้ล่วงหน้า</li>
           <li>• ระยะเวลาดำเนินการ 1-3 วันทำการ</li>
           <li>• ไม่มีค่าธรรมเนียมการถอน</li>
         </ul>

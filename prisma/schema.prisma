@@ -1062,3 +1062,21 @@ model Notification {
   @@index([isRead])
   @@index([createdAt])
 }
+
+// ============================================
+// FREE PLAN: daily signal observation log
+// ============================================
+// Each unique (date, symbol, entryTime) represents one signal observed inside
+// the free viewing window. COUNT(*) per date is the "X / 10" counter.
+// date is YYYY-MM-DD in Asia/Bangkok (keyed by getTodayKeyBkk()).
+// Keep this table lean — purge via cron after ~30 days.
+model FreeSignalObservation {
+  id        String   @id @default(cuid())
+  date      String   @db.VarChar(10)
+  symbol    String
+  entryTime String
+  createdAt DateTime @default(now())
+
+  @@unique([date, symbol, entryTime])
+  @@index([date])
+}

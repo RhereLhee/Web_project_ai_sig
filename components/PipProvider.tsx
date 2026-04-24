@@ -13,16 +13,20 @@ interface PipContextValue {
   // Connection
   connected: boolean
   dataMode: string
-  
+
   // Data
   symbolData: Record<string, RealtimeData['symbols'][string]>
   symbolConfigs: Record<string, SymbolConfig>
   globalCountdown: number
-  
+
   // PiP
   isPipActive: boolean
   isPipSupported: boolean
   togglePip: () => Promise<void>
+
+  // Free-plan flags (propagated to SignalRoomContent)
+  freePlanActive: boolean
+  allowedPairs: readonly string[] | null // null = all pairs allowed
 }
 
 // ============================================
@@ -38,9 +42,27 @@ const PipContext = createContext<PipContextValue | null>(null)
 interface PipProviderProps {
   children: ReactNode
   wsUrl?: string
+  /** When true, skip playing the signal-alert sound (FREE PLAN). */
+  disableSound?: boolean
+  /** Mark the session as free — hides PiP button and filters pairs in SignalRoomContent. */
+  freePlanActive?: boolean
+  /**
+   * When set, only these broker symbols will be reported to the UI; others are
+   * filtered out before state update. Keep null for full access.
+   */
+  allowedPairs?: readonly string[] | null
+  /** Called when a new (symbol, entryTime) pair is observed — used to POST /free-observe. */
+  onNewSignal?: (symbol: string, entryTime: string) => void
 }
 
-export function PipProvider({ children, wsUrl }: PipProviderProps) {
+export function PipProvider({
+  children,
+  wsUrl,
+  disableSound = false,
+  freePlanActive = false,
+  allowedPairs = null,
+  onNewSignal,
+}: PipProviderProps) {
   // Connection state
   const [connected, setConnected] = useState(false)
   const [dataMode, setDataMode] = useState('offline')
@@ -68,6 +90,7 @@ export function PipProvider({ children, wsUrl }: PipProviderProps) {
 
   // Sound Alert: เล่นเสียงเมื่อมี signal ใหม่
   const playSignalAlert = useCallback(() => {
+    if (disableSound) return // FREE PLAN: silent by design
     try {
       if (audioRef.current) {
         audioRef.current.currentTime = 0
@@ -78,7 +101,7 @@ export function PipProvider({ children, wsUrl }: PipProviderProps) {
     } catch (e) {
       // Silent fail
     }
-  }, [])
+  }, [disableSound])
 
   // Sound Alert: ตรวจจับ signal ใหม่
   const checkForNewSignals = useCallback((newData: Record<string, any>) => {
@@ -86,22 +109,26 @@ export function PipProvider({ children, wsUrl }: PipProviderProps) {
 
     for (const symbol in newData) {
       const activeSignal = newData[symbol]?.active_signal
+      const entryTime = activeSignal?.entry_time || activeSignal?.trades?.[0]?.entry_time
       const currentSignalKey = activeSignal
-        ? `${symbol}_${activeSignal.signal_type}_${activeSignal.entry_time || activeSignal.trades?.[0]?.entry_time}`
+        ? `${symbol}_${activeSignal.signal_type}_${entryTime}`
         : null
 
       const prevSignalKey = prevSignals[symbol] || null
 
-      // ถ้ามี signal ใหม่ที่ไม่เคยเห็น เล่นเสียง
       if (currentSignalKey && currentSignalKey !== prevSignalKey) {
         playSignalAlert()
+        // FREE PLAN: also notify the wrapper so it can POST to /free-observe.
+        if (onNewSignal && entryTime) {
+          try { onNewSignal(symbol, String(entryTime)) } catch { /* swallow */ }
+        }
       }
 
       prevSignals[symbol] = currentSignalKey
     }
 
     prevSignalsRef.current = prevSignals
-  }, [playSignalAlert])
+  }, [playSignalAlert, onNewSignal])
 
   // Initialize services
   useEffect(() => {
@@ -111,9 +138,15 @@ export function PipProvider({ children, wsUrl }: PipProviderProps) {
     // Subscribe to data updates
     const unsubscribeData = signalService.onData((data) => {
       if (data.symbols) {
-        // Sound Alert: เช็ค signal ใหม่ก่อน update state
-        checkForNewSignals(data.symbols)
-        setSymbolData(data.symbols)
+        // FREE PLAN: filter to allowed pairs BEFORE touching state so the rest
+        // of the UI never sees the gated symbols at all.
+        const filtered: typeof data.symbols = allowedPairs
+          ? Object.fromEntries(
+              Object.entries(data.symbols).filter(([sym]) => allowedPairs.includes(sym)),
+            )
+          : data.symbols
+        checkForNewSignals(filtered)
+        setSymbolData(filtered)
       }
       if (data.countdown !== undefined) {
         setGlobalCountdown(data.stale ? 0 : data.countdown)
@@ -138,8 +171,8 @@ export function PipProvider({ children, wsUrl }: PipProviderProps) {
       setIsPipActive(active)
     })
 
-    // Check PiP support
-    setIsPipSupported(pipManager.getIsSupported())
+    // Check PiP support — free plan forces this to false so the button is hidden.
+    setIsPipSupported(!freePlanActive && pipManager.getIsSupported())
 
     // Cleanup
     return () => {
@@ -148,16 +181,17 @@ export function PipProvider({ children, wsUrl }: PipProviderProps) {
       unsubscribeConnection()
       unsubscribePip()
     }
-  }, [wsUrl, checkForNewSignals])
+  }, [wsUrl, checkForNewSignals, allowedPairs, freePlanActive])
 
   // Countdown อิงจาก MT5 ตรงๆ — ไม่นับเอง
   // ค่า countdown มาจาก WebSocket data ทุก ~1 วินาที (signalService.onData)
   // เมื่อตลาดปิด MT5 หยุดส่ง countdown หยุดตาม
 
-  // Toggle PiP
+  // Toggle PiP — no-op under FREE PLAN.
   const togglePip = useCallback(async () => {
+    if (freePlanActive) return
     await pipManager.toggle()
-  }, [])
+  }, [freePlanActive])
 
   const value: PipContextValue = {
     connected,
@@ -168,6 +202,8 @@ export function PipProvider({ children, wsUrl }: PipProviderProps) {
     isPipActive,
     isPipSupported,
     togglePip,
+    freePlanActive,
+    allowedPairs: allowedPairs ?? null,
   }
 
   return (

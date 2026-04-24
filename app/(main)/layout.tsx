@@ -1,5 +1,5 @@
 // app/(main)/layout.tsx
-import { getUserWithSubscription, hasActivePartner, hasSignalAccess } from "@/lib/auth"
+import { getUserWithSubscription, hasPartnerBankInfo, hasSignalAccess } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { Sidebar } from "@/components/Sidebar"
 import { Footer } from "@/components/Footer"
@@ -7,12 +7,14 @@ import { PipProviderWrapper } from "./PipProviderWrapper"
 
 export default async function MainLayout({ children }: { children: React.ReactNode }) {
   const user = await getUserWithSubscription()
-  
+
   if (!user) {
     redirect("/login")
   }
 
-  const hasPartner = hasActivePartner(user)
+  // "Partner" badge in the sidebar now means the user has registered bank info
+  // (not that they paid for a Partner subscription, which no longer exists).
+  const hasPartner = hasPartnerBankInfo(user)
   const hasSignal = hasSignalAccess(user)
 
   return (
