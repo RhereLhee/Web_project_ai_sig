@@ -1,103 +1,75 @@
 // app/api/admin/withdrawals/[id]/reject/route.ts
-// คืนเงิน = ลด withdrawnAmount กลับ
+// Admin rejects a PENDING withdrawal — releases held commissions and refunds ledger.
+
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth'
 import { sendWithdrawalRejectedEmail } from '@/lib/email'
+import { rejectWithdrawal, WithdrawalError } from '@/lib/withdrawal'
+import { getIdempotencyKey, withIdempotency } from '@/lib/idempotency'
+import { logger } from '@/lib/logger'
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const admin = await requireAdmin()
     const { id } = await params
     const { reason } = await request.json()
 
-    if (!reason || reason.trim() === '') {
-      return NextResponse.json({ error: 'กรุณาระบุเหตุผลในการปฏิเสธ' }, { status: 400 })
+    if (!reason || typeof reason !== 'string' || reason.trim() === '') {
+      return NextResponse.json(
+        { error: 'กรุณาระบุเหตุผลในการปฏิเสธ' },
+        { status: 400 },
+      )
     }
 
-    const withdrawal = await prisma.withdrawal.findUnique({
-      where: { id },
-      include: {
-        user: { select: { email: true, name: true } },
-        commissions: true, // ดึง commissions ที่ link กับ withdrawal นี้
-      },
-    })
+    const idempKey = getIdempotencyKey(request) ?? `wd_reject:${id}`
+    const actorIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null
+    const actorUa = request.headers.get('user-agent')
 
-    if (!withdrawal) {
-      return NextResponse.json({ error: 'ไม่พบรายการ' }, { status: 404 })
-    }
-
-    if (withdrawal.status !== 'PENDING') {
-      return NextResponse.json({ error: 'รายการนี้ไม่อยู่ในสถานะรอดำเนินการ' }, { status: 400 })
-    }
-
-    // ============================================
-    // Transaction: Update withdrawal + คืนเงิน
-    // ============================================
-    await prisma.$transaction(async (tx) => {
-      // 1. Update withdrawal status
-      await tx.withdrawal.update({
-        where: { id },
-        data: {
-          status: 'REJECTED',
-          rejectedBy: admin?.id || null,
-          rejectedAt: new Date(),
-          rejectedReason: reason,
-        },
+    const result = await withIdempotency(idempKey, 'withdraw_reject', async () => {
+      await rejectWithdrawal({
+        withdrawalId: id,
+        actorId: admin?.id || 'system',
+        actorRole: 'ADMIN',
+        actorIp,
+        actorUa,
+        reason,
       })
-
-      // 2. คืนเงิน: ลด withdrawnAmount กลับ
-      for (const comm of withdrawal.commissions) {
-        // คำนวณยอดที่ต้องคืน (ยอดที่ถอนจาก commission นี้)
-        // เราต้องหาว่า commission นี้ถูกถอนไปเท่าไหร่ในการถอนครั้งนี้
-        // วิธีง่ายสุด: ดูว่า withdrawalId ตรงกับ withdrawal นี้
-        
-        const availableBeforeWithdraw = comm.amount - comm.withdrawnAmount
-        
-        // ถ้า commission นี้ถอนหมดแล้ว (FULLY_WITHDRAWN) ให้คืนทั้งหมด
-        // ถ้าถอนบางส่วน ให้คืนส่วนที่ถอน
-        
-        // Reset withdrawnAmount เฉพาะส่วนที่ link กับ withdrawal นี้
-        // เนื่องจาก 1 commission อาจถูกถอนหลายครั้ง เราต้อง track ดีๆ
-        // แต่ตอนนี้ใช้ withdrawalId เป็น "การถอนล่าสุด" 
-        // ดังนั้นเมื่อ reject ให้ reset withdrawnAmount กลับ
-        
-        await tx.commission.update({
-          where: { id: comm.id },
-          data: {
-            withdrawnAmount: 0, // Reset (ถ้าต้องการ partial ต้องเก็บ history)
-            withdrawalId: null,
-            status: 'AVAILABLE',
-          },
-        })
-      }
+      return { statusCode: 200, body: { success: true } }
     })
 
-    // ============================================
-    // ส่ง Email แจ้ง User
-    // ============================================
-    if (withdrawal.user?.email) {
+    // Notify user
+    if (!result.cached) {
       try {
-        await sendWithdrawalRejectedEmail(withdrawal.user.email, {
-          amount: withdrawal.amount / 100,
-          bankCode: withdrawal.bankCode,
-          accountNumber: withdrawal.accountNumber,
-          accountName: withdrawal.accountName,
-          date: withdrawal.createdAt,
-          reason: reason,
+        const w = await prisma.withdrawal.findUnique({
+          where: { id },
+          include: { user: { select: { email: true, name: true } } },
         })
-        console.log(`Sent rejection email to ${withdrawal.user.email}`)
+        if (w?.user?.email) {
+          await sendWithdrawalRejectedEmail(w.user.email, {
+            amount: w.amount / 100,
+            bankCode: w.bankCode,
+            accountNumber: w.accountNumber,
+            accountName: w.accountName,
+            date: w.createdAt,
+            reason,
+          })
+        }
       } catch (emailError) {
-        console.error('Failed to send rejection email:', emailError)
+        logger.error('Failed to send rejection email', { context: 'email', error: emailError })
       }
     }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json(result.body, { status: result.statusCode })
   } catch (error) {
-    console.error('Reject withdrawal error:', error)
+    if (error instanceof WithdrawalError) {
+      const code = error.code === 'NOT_FOUND' ? 404 : 400
+      return NextResponse.json({ error: error.message, code: error.code }, { status: code })
+    }
+    logger.error('Reject withdrawal error', { context: 'withdrawal', error })
     return NextResponse.json({ error: 'เกิดข้อผิดพลาด' }, { status: 500 })
   }
 }

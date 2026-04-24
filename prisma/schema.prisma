@@ -85,6 +85,24 @@ enum WithdrawalStatus {
   REJECTED
 }
 
+enum LedgerType {
+  COMMISSION_CREDIT     // + เมื่อแจก commission
+  WITHDRAWAL_HOLD       // - เมื่อ user ยื่นขอถอน (กันยอด)
+  WITHDRAWAL_RELEASE    // + เมื่อถอนถูก reject (คืนยอด)
+  WITHDRAWAL_DEBIT      // ไม่มีผล balance (เป็น marker ตอน PAID)
+  COMMISSION_REVERSAL   // - เมื่อ admin void commission
+  ADJUSTMENT            // +/- manual
+}
+
+enum SlipVerificationStatus {
+  PENDING               // รอเรียก SlipOK
+  VERIFIED              // SlipOK ยืนยันว่าสลิปจริง
+  REJECTED              // SlipOK ปฏิเสธ (สลิปปลอม/อ่านไม่ได้)
+  MATCHED               // จับคู่ Order แล้ว
+  UNMATCHED             // verify ผ่านแต่หา Order ไม่เจอ (admin manual)
+  DUPLICATE             // สลิปซ้ำ (bankRef ใช้แล้ว)
+}
+
 // ============================================
 // COMMISSION STATUS
 // ============================================
@@ -410,6 +428,21 @@ model Order {
   affiliatePool  Int     @default(0)
   finalAmount    Int
 
+  // ============================================
+  // BANKING: Exact-match payment verification
+  // ============================================
+  // expectedAmountSatang = finalAmount + amountSuffix (1-99 satang)
+  // ใช้กันสับสนเมื่อมีหลายคนโอนยอดเดียวกันพร้อมๆ กัน
+  expectedAmountSatang Int       @default(0)
+  amountSuffix         Int       @default(0)   // 1..99
+  expiresAt            DateTime?                // หมดอายุหลัง 30 นาที
+
+  // ============================================
+  // AFFILIATE: First-payment-only per (user, upline) pair
+  // ============================================
+  // ถ้า user เคยจ่ายให้ upline คนนี้ไปแล้ว → false (ไม่แจก commission)
+  isFirstPayment Boolean @default(true)
+
   status        OrderStatus    @default(PENDING)
   paymentMethod PaymentMethod?
   paidAt        DateTime?
@@ -422,12 +455,16 @@ model Order {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  affiliatePayment AffiliatePayment?
+  affiliatePayment    AffiliatePayment?
+  slipVerifications   SlipVerification[]
+  bankTransaction     BankTransaction?
 
   @@index([userId])
   @@index([partnerId])
   @@index([status])
   @@index([orderNumber])
+  @@index([expectedAmountSatang, status])
+  @@index([expiresAt])
 }
 
 // ============================================
@@ -460,43 +497,62 @@ model Commission {
   affiliatePaymentId String
   affiliatePayment   AffiliatePayment @relation(fields: [affiliatePaymentId], references: [id])
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
+  // payer (buyer) + receiver (upline) — pair uniqueness prevents double-commission
+  // across retries / double-approvals.
+  buyerId String?   // ผู้ซื้อที่ทำให้เกิด commission นี้ (สำหรับ first-payment rule)
+  userId  String    // ผู้รับ commission (upline)
+  user    User      @relation(fields: [userId], references: [id])
 
   level            Int
   weight           Float
   normalizedWeight Float
-  
+
   // ============================================
   // AMOUNT TRACKING (Immutable Pattern)
   // ============================================
-  amount           Int       // totalAmount (satang) - ห้ามแก้!
-  amountBaht       Float     // totalAmount (baht) - ห้ามแก้!
-  withdrawnAmount  Int       @default(0)  // ยอดที่ถอนไปแล้ว (satang)
-  
-  // available = amount - withdrawnAmount
+  // amount: ยอดต้น — immutable หลังสร้าง (ห้าม UPDATE)
+  // การ "ถอน" ทำผ่าน status transition + LedgerEntry, ไม่แก้ amount
+  amount     Int   // satang
+  amountBaht Float // baht (display cache — not source of truth)
 
   // ============================================
-  // STATUS
+  // STATUS (single source of truth สำหรับสถานะ commission นี้)
   // ============================================
-  // AVAILABLE = ยังมียอดถอนได้
-  // FULLY_WITHDRAWN = ถอนหมดแล้ว
+  // AVAILABLE        = ถอนได้
+  // HOLDING          = ถูกผูกกับ Withdrawal ที่ยัง PENDING/APPROVED
+  // WITHDRAWN        = ถอนแล้ว (Withdrawal.status = PAID)
+  // VOID             = ยกเลิก (refund order, etc.)
   status  String    @default("AVAILABLE")
   paidAt  DateTime?
   paidVia String?
 
   // ============================================
-  // Link to Withdrawal (for tracking)
+  // Link to Withdrawal (set เมื่อ HOLDING/WITHDRAWN)
   // ============================================
   withdrawalId String?
   withdrawal   Withdrawal? @relation(fields: [withdrawalId], references: [id])
 
+  // ============================================
+  // Parent commission (สำหรับ split: partial consume สร้าง record ใหม่)
+  // ============================================
+  parentCommissionId String?
+  parentCommission   Commission?  @relation("CommissionSplit", fields: [parentCommissionId], references: [id])
+  splitChildren      Commission[] @relation("CommissionSplit")
+
   createdAt DateTime @default(now())
 
+  // NOTE: Unique constraints are enforced in migration SQL as PARTIAL indexes
+  //   (only rows with parentCommissionId IS NULL) so split children don't collide.
+  //   Effective rules:
+  //     UNIQUE (affiliatePaymentId, userId) WHERE parentCommissionId IS NULL
+  //     UNIQUE (buyerId, userId)             WHERE parentCommissionId IS NULL AND buyerId IS NOT NULL
   @@index([userId])
   @@index([status])
   @@index([level])
   @@index([withdrawalId])
+  @@index([buyerId, userId])
+  @@index([affiliatePaymentId, userId])
+  @@index([parentCommissionId])
 }
 
 // ============================================
@@ -786,11 +842,170 @@ model Withdrawal {
   // NEW: Commissions linked to this withdrawal
   // ============================================
   commissions Commission[]
+  audits      WithdrawalAudit[]
+  ledgerEntries LedgerEntry[]
 
   @@index([userId])
   @@index([partnerId])
   @@index([status])
   @@index([withdrawalNumber])
+}
+
+// ============================================
+// WITHDRAWAL AUDIT LOG (banking-grade)
+// Append-only. Tracks every state transition with actor, ip, reason.
+// ============================================
+
+model WithdrawalAudit {
+  id           String            @id @default(cuid())
+  withdrawalId String
+  withdrawal   Withdrawal        @relation(fields: [withdrawalId], references: [id])
+
+  fromStatus   WithdrawalStatus?
+  toStatus     WithdrawalStatus
+
+  actorId      String?           // admin userId or system
+  actorRole    String?           // "ADMIN" | "USER" | "SYSTEM"
+  actorIp      String?
+  actorUa      String?           @db.Text
+
+  reason       String?           @db.Text
+  metadata     Json?
+
+  createdAt    DateTime          @default(now())
+
+  @@index([withdrawalId])
+  @@index([toStatus])
+  @@index([createdAt])
+}
+
+// ============================================
+// LEDGER — Immutable double-entry audit trail
+// balance(user) = SUM(LedgerEntry.amount WHERE userId=X)
+// NEVER UPDATE. ONLY INSERT.
+// ============================================
+
+model LedgerEntry {
+  id         String     @id @default(cuid())
+  userId     String
+
+  // Signed satang: + = เพิ่มยอด, - = ลดยอด
+  amount     Int
+  type       LedgerType
+
+  // ชี้กลับไปที่ entity ต้นตอของ entry นี้ (commission/withdrawal/order)
+  refType    String     // "commission" | "withdrawal" | "order" | "adjustment"
+  refId      String
+
+  // Link ตรงสำหรับ withdrawal (ง่ายต่อการ query)
+  withdrawalId String?
+  withdrawal   Withdrawal? @relation(fields: [withdrawalId], references: [id])
+
+  note       String?    @db.Text
+  createdBy  String?    // admin userId (สำหรับ ADJUSTMENT)
+
+  createdAt  DateTime   @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type])
+  @@index([refType, refId])
+  @@index([withdrawalId])
+}
+
+// ============================================
+// IDEMPOTENCY KEYS — กัน double-submit / replay webhook
+// ============================================
+
+model IdempotencyKey {
+  key         String   @id            // client-provided UUID หรือ provider event id
+  scope       String                  // "order_approve" | "withdraw" | "slipok_webhook" | ...
+  response    Json                    // cached response body
+  statusCode  Int      @default(200)
+
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime                // auto-cleanup หลัง 24 ชม.
+
+  @@index([scope])
+  @@index([expiresAt])
+}
+
+// ============================================
+// SLIP VERIFICATION (SlipOK integration)
+// ============================================
+
+model SlipVerification {
+  id            String                 @id @default(cuid())
+  orderId       String?                // null ถ้า unmatched
+  order         Order?                 @relation(fields: [orderId], references: [id])
+
+  userId        String                 // ผู้อัพโหลด
+
+  // File
+  fileUrl       String?                // path ใน /public/uploads/slips/
+  fileSha256    String                 @unique   // hash รูปภาพ — กัน reuse
+
+  // SlipOK raw response
+  provider      String                 @default("slipok")  // "slipok" | "easyslip" | "manual"
+  providerRef   String?                @unique             // transRef / slipRef จาก provider
+  rawResponse   Json?                                      // full raw payload
+
+  // Parsed fields (ที่ใช้ match)
+  amountSatang  Int?
+  senderBank    String?
+  senderName    String?
+  senderAccount String?
+  receiverBank  String?
+  receiverName  String?
+  receiverAccount String?
+  transferAt    DateTime?
+
+  status        SlipVerificationStatus @default(PENDING)
+  errorMessage  String?                @db.Text
+
+  // Admin override (สำหรับ manual approval)
+  reviewedBy    String?
+  reviewedAt    DateTime?
+  reviewNote    String?                @db.Text
+
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  @@index([orderId])
+  @@index([userId])
+  @@index([status])
+  @@index([providerRef])
+  @@index([createdAt])
+}
+
+// ============================================
+// BANK TRANSACTION — raw record of money in/out
+// (immutable source of truth for semi-auto matching)
+// ============================================
+
+model BankTransaction {
+  id            String   @id @default(cuid())
+
+  // ถ้า match order ได้ → orderId (1:1)
+  orderId       String?  @unique
+  order         Order?   @relation(fields: [orderId], references: [id])
+
+  // Bank data (from SlipOK / manual)
+  bankRef       String   @unique           // transaction reference — กัน reuse
+  amountSatang  Int
+  receivedAt    DateTime
+
+  senderBank    String?
+  senderAccount String?
+  receiverBank  String?
+  receiverAccount String?
+
+  rawData       Json?                      // raw payload
+  source        String   @default("slipok") // "slipok" | "manual"
+
+  createdAt     DateTime @default(now())
+
+  @@index([amountSatang, receivedAt])
+  @@index([receivedAt])
 }
 
 // ============================================

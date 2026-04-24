@@ -41,21 +41,11 @@ async function getAffiliateStats(userId: string) {
     }),
   ])
 
-  // คำนวณยอดจาก withdrawnAmount pattern
-  const allCommissions = await prisma.commission.findMany({
-    where: { userId },
-  })
-
-  // ยอดถอนได้ = SUM(amount - withdrawnAmount) where status = AVAILABLE
-  const pendingBalance = allCommissions
-    .filter(c => c.status === 'AVAILABLE')
-    .reduce((sum, c) => sum + (c.amount - c.withdrawnAmount), 0)
-
-  // ยอดที่ถอนไปแล้ว = SUM(withdrawnAmount)
-  const withdrawnBalance = allCommissions.reduce((sum, c) => sum + c.withdrawnAmount, 0)
-
-  // ยอดรวมทั้งหมด = SUM(amount)
-  const totalEarned = allCommissions.reduce((sum, c) => sum + c.amount, 0)
+  // Balance derived from ledger (source of truth).
+  // Commissions table is kept for audit/history but balance math uses LedgerEntry.
+  const { getUserAffiliateBalance, getUserLifetimeEarnings } = await import('@/lib/affiliate')
+  const pendingBalance = await getUserAffiliateBalance(userId)
+  const totalEarned = await getUserLifetimeEarnings(userId)
 
   return {
     team: teamCount,

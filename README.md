@@ -420,6 +420,136 @@ git pull
 
 ---
 
+## Banking-Grade Money System (Updated 24 เม.ย. 2026)
+
+การเงินทุกจุด (affiliate, VIP/Partner/Signal order, semi-auto slip verify, withdraw) ถูก rewrite
+ให้เข้มระดับ banking — **store เป็น integer satang เท่านั้น, ห้าม float**, และทุก state change
+ถูก log ใน immutable ledger + audit trail. ถ้าจะแก้อะไรที่เกี่ยวกับเงิน อ่านส่วนนี้ให้จบก่อน
+
+### Invariants (ห้ามทำลาย)
+
+1. **ยอดคงเหลือของ user = `SUM(LedgerEntry.amount WHERE userId=X)`** — ไม่มีที่อื่น ไม่ใช่ col `withdrawnAmount`,
+   ไม่ใช่ sum commission.amount. DB trigger กันการ UPDATE/DELETE `LedgerEntry` rows แล้ว.
+2. **Commission.amount immutable** หลังถูกสร้าง การ "ถอน" ทำผ่าน status transition + Ledger
+   (`AVAILABLE → HOLDING → WITHDRAWN`), ไม่แก้ amount เลย.
+3. **Order approval ต้องอยู่ใน transaction เดียวกับ subscription activation**
+   (`app/api/admin/orders/[id]/approve/route.ts`) — Serializable isolation, timeout 20s.
+4. **First-payment-per-(buyer, upline) rule** กันด้วย partial unique index ใน DB
+   (`Commission (buyerId, userId) WHERE parentCommissionId IS NULL`). Retry ที่เจอ P2002 = idempotent skip.
+5. **Slip reuse blocked** ด้วย `SlipVerification.fileSha256 UNIQUE`. Bank transaction reuse ด้วย
+   `BankTransaction.bankRef UNIQUE` + `orderId UNIQUE` (1:1 order↔bankTx).
+6. **Order exact-amount match**: `expectedAmountSatang = finalAmount + amountSuffix (1-99 satang)`
+   suffix สุ่มด้วย `crypto.randomInt` เลี่ยงชนกับ PENDING orders อื่น — QR code generate ด้วยยอดนี้.
+
+### Canonical files
+
+| Concern | File | หมายเหตุ |
+|---|---|---|
+| Constants + money helpers | `lib/money.ts` | `computePoolSatang`, `generateAmountSuffix`, `parseBahtToSatang` |
+| System settings (VIP price, pool %, min withdraw) | `lib/system-settings.ts` | `getVipPriceSatang`, `getAffiliatePoolPercent`, `getMinWithdrawSatang` |
+| Immutable ledger | `lib/ledger.ts` | `postLedger` (tx-only), `getLedgerBalance`, `getAvailableForWithdraw` |
+| Idempotency cache | `lib/idempotency.ts` | `withIdempotency(key, scope, fn)` wraps any mutating handler |
+| Commission distribution | `lib/affiliate.ts` | `distributeCommission` Serializable tx, reads pool % from SystemSetting |
+| Withdrawal FIFO + split | `lib/withdrawal.ts` | `createWithdrawal`, `approveWithdrawal`, `markWithdrawalPaid`, `rejectWithdrawal` |
+| Order payment fields | `lib/order-helpers.ts` | `buildOrderPaymentFields`, `isFirstPaymentForBuyer` |
+| SlipOK integration | `lib/slipok.ts` | `verifySlip` — never throws, returns MANUAL on failure |
+| Cron auth | `lib/cron-auth.ts` | checks `CRON_SECRET` env |
+
+### API routes
+
+```
+POST /api/checkout/signal          — Signal plan checkout (unique-amount QR)
+POST /api/partner/checkout         — Partner plan checkout (unique-amount QR)
+POST /api/upload-slip              — Slip upload → SlipOK verify → create BankTransaction if VERIFIED
+POST /api/admin/orders/[id]/approve  — Order PAID + subscription activate + commission distribute (1 tx)
+
+POST /api/withdraw                 — Firebase flow (OTP-less phone lock)
+POST /api/withdraw/firebase        — Phone-lock variant, identical ledger flow
+POST /api/admin/withdrawals/[id]/approve  — PENDING→APPROVED (locks commissions)
+POST /api/admin/withdrawals/[id]/paid     — APPROVED→PAID (commissions HOLDING→WITHDRAWN)
+POST /api/admin/withdrawals/[id]/reject   — PENDING→REJECTED (releases holds + refund email)
+GET  /api/admin/withdrawals/export — CSV for bank batch import (BOM + UTF-8, filter by status/date)
+
+GET  /api/cron/cleanup             — hourly: expire stale PENDING orders, purge expired idempotency keys
+GET  /api/cron/reconcile           — daily 03:00: compare commission AVAILABLE+HOLDING vs ledger balance, email admin on drift
+GET  /api/cron/payout-reminder     — Sunday 09:00: email admins list of PENDING/APPROVED withdrawals
+```
+
+Cron wired via `vercel.json` (see file). All cron endpoints require header
+`Authorization: Bearer $CRON_SECRET` or `x-cron-secret: $CRON_SECRET`.
+
+### Admin UI
+
+- `/admin/orders` — list + slip review (shows expected amount incl. suffix, SlipOK status,
+  BankTransaction match, first-payment flag, expiry)
+- `/admin/withdrawals` — list + CSV export button + filter chips
+- `/admin/withdrawals/[id]` — full audit timeline (fromStatus→toStatus with actor/IP),
+  reserved commissions list (incl. split children), ledger entries for this withdrawal
+- `/admin/users/[id]` — ledger-based balance breakdown (AVAILABLE/HOLDING/WITHDRAWN/VOID),
+  downline list, recent commissions with links to order + withdrawal
+
+### Environment
+
+```
+# Required for cron auth
+CRON_SECRET=<long-random-string>
+
+# SlipOK (optional — if unset, all slips go to manual review)
+SLIPOK_ENABLED=true
+SLIPOK_API_URL=https://api.slipok.com/api/line/apikey/<BRANCH_ID>
+SLIPOK_API_KEY=<x-authorization header value>
+SLIPOK_EXPECTED_RECEIVER=<bank account number for receiver match, optional>
+
+# PromptPay (required for checkout)
+PROMPTPAY_ID=<Thai National ID or phone>
+```
+
+### Configurable SystemSetting keys (admin can change without redeploy)
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `vip_price_satang` | int | 49900 | Partner VIP price (499฿) |
+| `affiliate_pool_percent` | int | 30 | % ของยอดที่แจก upline (0–100) |
+| `min_withdraw_satang` | int | 30000 | ถอนขั้นต่ำ (300฿) |
+| `affiliate_enabled` | bool | true | เปิด/ปิด commission distribution |
+
+### Operating runbook
+
+- **Bi-weekly payout (ทุก 2 สัปดาห์ อาทิตย์):**
+  1. รับ reminder email 09:00 UTC Sunday
+  2. ไปที่ `/admin/withdrawals` — ตรวจ PENDING → อนุมัติ/ปฏิเสธ
+  3. filter APPROVED → กด "ดาวน์โหลด CSV" → นำเข้าเว็บธนาคาร
+  4. หลังโอน กด "โอนแล้ว" ทีละรายการ (มี paymentRef optional)
+
+- **Slip ที่ SlipOK ปฏิเสธ (REJECTED):**
+  - ยัง `slipUrl` บันทึก — admin ตรวจเองที่ `/admin/orders`
+  - ถ้าเห็นว่าถูกต้อง กด approve ได้เลย (จะไม่ recheck SlipOK)
+
+- **Drift alert email มาจาก /cron/reconcile:**
+  - หมายความว่า `commission (AVAILABLE+HOLDING) ≠ ledger balance` สำหรับ user บางคน
+  - **ห้าม UPDATE row ใน DB ตรงๆ** — ต้อง post `LedgerEntry{type:ADJUSTMENT}` เพื่อแก้ยอด
+    (ledger append-only, trigger จะ reject UPDATE/DELETE)
+
+### Remaining follow-ups สำหรับ AI รุ่นถัดไป
+
+1. **Migration ยังไม่ถูกรันบน production DB** — ไฟล์คือ
+   `prisma/migrations/20260423120000_banking_grade_money/migration.sql`
+   รันด้วย `npx prisma migrate deploy` หลัง backup (มี backfill: existing orders จะได้
+   `expectedAmountSatang = finalAmount`, `amountSuffix = 0`)
+2. **Frontend checkout page** ต้องโชว์ยอดจาก `expectedAmount` (baht) ที่ API ส่งกลับมาแล้ว
+   ไม่ใช่ราคาแพ็กเกจฐาน ตรวจว่า `app/(main)/partner/checkout/page.tsx` และ
+   `app/(main)/signal/checkout/page.tsx` ดึงค่า `expectedAmount` ไปแสดง (ไม่ใช่ `finalPrice`)
+3. **SlipOK webhook endpoint** (`/api/webhooks/slipok`) ยังไม่ได้ทำ ถ้าจะรับ async
+   notification จาก SlipOK ต้องใส่ IdempotencyKey ด้วย `providerRef` (scope: `slipok_webhook`)
+4. **Unit tests สำหรับ money math** — `lib/money.ts`, `lib/affiliate.ts` (pool %, decay),
+   `lib/withdrawal.ts` (FIFO split) ควรมี Jest test
+5. **E2E test** สำหรับ full flow: checkout → upload slip → approve → affiliate distribute →
+   withdraw → admin approve → admin paid → ledger balance = 0
+6. **Admin bulk actions** — อนุมัติ/ปฏิเสธหลายรายการพร้อมกัน
+7. **Export ledger สำหรับ accounting** — CSV ของ LedgerEntry กรองตาม date range
+
+---
+
 ## OFFLINE Troubleshooting
 
 ถ้าหน้า signal แสดง OFFLINE:

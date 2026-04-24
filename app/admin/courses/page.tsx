@@ -1,122 +1,34 @@
-import { prisma } from "@/lib/prisma"
-import Link from "next/link"
-import { CourseForm } from "./CourseForm"
-import { DeleteCourseButton } from "./DeleteCourseButton"
+// app/admin/courses/page.tsx
+// Admin courses management is locked — course feature not yet open for service.
+// When ready to launch, restore the previous version from git history.
 
-async function getCourses() {
-  return await prisma.course.findMany({
-    include: {
-      sections: {
-        include: { videos: true },
-      },
-    },
-    orderBy: { order: 'asc' },
-  })
-}
-
-export default async function AdminCoursesPage() {
-  const courses = await getCourses()
-
-  const accessColors: Record<string, string> = {
-    FREE: 'bg-emerald-100 text-emerald-700',
-    PRO: 'bg-blue-100 text-blue-700',
-    PARTNER: 'bg-purple-100 text-purple-700',
-  }
-
+export default function AdminCoursesPage() {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">จัดการคอร์ส ({courses.length})</h1>
-        <CourseForm />
+        <h1 className="text-2xl font-bold text-gray-900">จัดการคอร์ส</h1>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-lg border overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="text-left p-3 font-medium">ลำดับ</th>
-                <th className="text-left p-3 font-medium">คอร์ส</th>
-                <th className="text-left p-3 font-medium">ประเภท</th>
-                <th className="text-left p-3 font-medium">สิทธิ์</th>
-                <th className="text-left p-3 font-medium">สถานะ</th>
-                <th className="text-left p-3 font-medium">วิดีโอ</th>
-                <th className="text-left p-3 font-medium">จัดการ</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {courses.map((course, index) => {
-                const totalVideos = course.sections.reduce((sum, s) => sum + s.videos.length, 0)
-                
-                return (
-                  <tr key={course.id} className="hover:bg-gray-50">
-                    <td className="p-3 text-gray-500">{index + 1}</td>
-                    <td className="p-3">
-                      <p className="font-medium">{course.title}</p>
-                      <p className="text-xs text-gray-500">{course.slug}</p>
-                    </td>
-                    <td className="p-3">
-                      <span className="px-2 py-0.5 bg-gray-100 rounded text-xs">
-                        {course.type === 'TRADING' ? 'การเทรด' : 'การเงิน'}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${accessColors[course.access]}`}>
-                        {course.access}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                        course.isPublished 
-                          ? 'bg-emerald-100 text-emerald-700' 
-                          : 'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {course.isPublished ? 'เผยแพร่' : 'ซ่อน'}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      <span className="font-medium">{totalVideos}</span>
-                      <span className="text-gray-400 text-xs ml-1">วิดีโอ</span>
-                    </td>
-                    <td className="p-3">
-                      <div className="flex gap-2">
-                        <Link 
-                          href={`/admin/courses/${course.id}`}
-                          className="text-emerald-600 hover:underline text-sm"
-                        >
-                          แก้ไข
-                        </Link>
-                        <Link 
-                          href={`/admin/courses/${course.id}/videos`}
-                          className="text-blue-600 hover:underline text-sm"
-                        >
-                          วิดีโอ
-                        </Link>
-                        <DeleteCourseButton courseId={course.id} />
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+      <div className="bg-white rounded-xl border p-12 text-center">
+        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <svg
+            className="w-8 h-8 text-gray-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+            />
+          </svg>
         </div>
-
-        {courses.length === 0 && (
-          <p className="text-center text-gray-500 py-8">ยังไม่มีคอร์ส</p>
-        )}
-      </div>
-
-      {/* Help */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h3 className="font-medium text-blue-800 mb-2">วิธีใช้งาน</h3>
-        <ol className="text-sm text-blue-700 space-y-1 list-decimal list-inside">
-          <li>กด <strong>"+ สร้างคอร์สใหม่"</strong> เพื่อสร้างคอร์ส</li>
-          <li>เลือกประเภท (การเทรด/การเงิน) และสิทธิ์ (FREE/PRO/PARTNER)</li>
-          <li>กด <strong>"วิดีโอ"</strong> เพื่อเพิ่มวิดีโอใส่คอร์ส</li>
-          <li>วาง YouTube URL กดเพิ่ม วิดีโอขึ้นหน้า User ทันที</li>
-        </ol>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">ยังไม่เปิดให้บริการ</h2>
+        <p className="text-gray-500">
+          ระบบจัดการคอร์สถูกล็อกชั่วคราว จะเปิดใช้งานเมื่อเนื้อหาคอร์สพร้อมเผยแพร่
+        </p>
       </div>
     </div>
   )

@@ -1,10 +1,16 @@
 // app/api/withdraw/firebase/route.ts
-// Withdraw API - ใช้ withdrawnAmount pattern (ไม่ split row)
+// Firebase-auth withdraw flow (no SMS OTP; phone lock enforced via Partner.withdrawPhone).
+// Uses the same banking-grade helpers as /api/withdraw for ledger + commission reservation.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/jwt'
 import { getUserWithSubscription, hasActivePartner } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { createWithdrawal, WithdrawalError } from '@/lib/withdrawal'
+import { getMinWithdrawSatang } from '@/lib/system-settings'
+import { getIdempotencyKey, withIdempotency } from '@/lib/idempotency'
+import { getAvailableForWithdraw } from '@/lib/ledger'
+import { logger } from '@/lib/logger'
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,38 +24,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // ต้องเป็น Partner Active
     if (!hasActivePartner(user)) {
       return NextResponse.json(
         { error: 'ต้องเป็น Partner ถึงจะถอนเงินได้' },
-        { status: 403 }
+        { status: 403 },
       )
     }
 
     const { amount, phone, bankCode, accountNumber, accountName } = await req.json()
 
-    // ============================================
-    // 1. VALIDATION
-    // ============================================
     if (!bankCode || !accountNumber || !accountName) {
       return NextResponse.json(
         { error: 'กรุณากรอกข้อมูลให้ครบถ้วน' },
-        { status: 400 }
+        { status: 400 },
       )
     }
 
-    // ============================================
-    // 2. GET PARTNER + USER PHONE
-    // ============================================
-    const partner = await prisma.partner.findUnique({
-      where: { userId: user.id },
-    })
-
+    const partner = await prisma.partner.findUnique({ where: { userId: user.id } })
     if (!partner) {
-      return NextResponse.json(
-        { error: 'ไม่พบข้อมูล Partner' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'ไม่พบข้อมูล Partner' }, { status: 404 })
     }
 
     const userData = await prisma.user.findUnique({
@@ -57,67 +50,33 @@ export async function POST(req: NextRequest) {
       select: { phone: true },
     })
 
-    // ============================================
-    // 3. CALCULATE AVAILABLE BALANCE
-    // available = SUM(amount - withdrawnAmount) where status = AVAILABLE
-    // ============================================
-    const commissions = await prisma.commission.findMany({
-      where: {
-        userId: user.id,
-        status: 'AVAILABLE',
-      },
-      orderBy: { createdAt: 'asc' },
-    })
-
-    const availableBalance = commissions.reduce(
-      (sum, c) => sum + (c.amount - c.withdrawnAmount), 
-      0
-    )
-
-    if (availableBalance <= 0) {
-      return NextResponse.json(
-        { error: 'ไม่มียอดเงินที่สามารถถอนได้' },
-        { status: 400 }
-      )
-    }
-
-    // ============================================
-    // 4. VALIDATE AMOUNT
-    // ============================================
-    const minAmount = 10000 // 100 บาท = 10000 satang
+    // Validate amount
     const requestedAmountSatang = Math.round((amount || 0) * 100)
-    
+    if (!Number.isInteger(requestedAmountSatang) || requestedAmountSatang <= 0) {
+      return NextResponse.json({ error: 'จำนวนเงินไม่ถูกต้อง' }, { status: 400 })
+    }
+    const minAmount = await getMinWithdrawSatang()
     if (requestedAmountSatang < minAmount) {
       return NextResponse.json(
-        { error: `ขั้นต่ำในการถอนคือ ฿${minAmount / 100}` },
-        { status: 400 }
+        { error: `ขั้นต่ำในการถอนคือ ฿${(minAmount / 100).toLocaleString()}` },
+        { status: 400 },
       )
     }
 
+    const availableBalance = await getAvailableForWithdraw(user.id)
     if (requestedAmountSatang > availableBalance) {
-      return NextResponse.json(
-        { error: 'ยอดเงินไม่เพียงพอ' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'ยอดเงินไม่เพียงพอ' }, { status: 400 })
     }
 
-    // ============================================
-    // 5. PHONE LOCK (1 เบอร์ = 1 บัญชี)
-    // ============================================
+    // PHONE LOCK (1 เบอร์ = 1 บัญชี)
     let finalPhone: string
-
     if (partner.withdrawPhone) {
       finalPhone = partner.withdrawPhone
     } else {
       const phoneToUse = phone || userData?.phone
-      
       if (!phoneToUse) {
-        return NextResponse.json(
-          { error: 'กรุณาระบุเบอร์โทรศัพท์' },
-          { status: 400 }
-        )
+        return NextResponse.json({ error: 'กรุณาระบุเบอร์โทรศัพท์' }, { status: 400 })
       }
-
       let formattedPhone = phoneToUse.replace(/\D/g, '')
       if (formattedPhone.startsWith('0')) {
         formattedPhone = '66' + formattedPhone.slice(1)
@@ -132,11 +91,10 @@ export async function POST(req: NextRequest) {
           userId: { not: user.id },
         },
       })
-
       if (otherPartnerWithPhone) {
         return NextResponse.json(
           { error: 'เบอร์โทรนี้ถูกใช้กับบัญชีอื่นแล้ว' },
-          { status: 400 }
+          { status: 400 },
         )
       }
 
@@ -147,74 +105,46 @@ export async function POST(req: NextRequest) {
           withdrawPhoneLockedAt: new Date(),
         },
       })
-
       finalPhone = formattedPhone
     }
 
-    // ============================================
-    // 6. CREATE WITHDRAWAL + UPDATE COMMISSIONS (Transaction)
-    // ============================================
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. สร้าง Withdrawal
-      const withdrawal = await tx.withdrawal.create({
-        data: {
-          userId: user.id,
-          partnerId: partner.id,
-          amount: requestedAmountSatang,
-          amountBaht: requestedAmountSatang / 100,
-          bankCode,
-          accountNumber,
-          accountName,
-          phone: finalPhone,
-          status: 'PENDING',
-        },
+    const idempKey = getIdempotencyKey(req)
+    const actorIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null
+    const actorUa = req.headers.get('user-agent')
+
+    const result = await withIdempotency(idempKey, 'withdraw_create', async () => {
+      const withdrawal = await createWithdrawal({
+        userId: user.id,
+        partnerId: partner.id,
+        amountSatang: requestedAmountSatang,
+        bankCode,
+        accountNumber,
+        accountName,
+        phone: finalPhone,
+        actorIp,
+        actorUa,
       })
-
-      // 2. Update withdrawnAmount ใน Commission (FIFO)
-      let remainingToWithdraw = requestedAmountSatang
-
-      for (const comm of commissions) {
-        if (remainingToWithdraw <= 0) break
-
-        const availableInThisComm = comm.amount - comm.withdrawnAmount
-        if (availableInThisComm <= 0) continue
-
-        const toWithdrawFromThis = Math.min(remainingToWithdraw, availableInThisComm)
-        const newWithdrawnAmount = comm.withdrawnAmount + toWithdrawFromThis
-
-        // Update commission
-        await tx.commission.update({
-          where: { id: comm.id },
-          data: {
-            withdrawnAmount: newWithdrawnAmount,
-            withdrawalId: withdrawal.id,
-            // ถ้าถอนหมดแล้ว status = FULLY_WITHDRAWN
-            status: newWithdrawnAmount >= comm.amount ? 'FULLY_WITHDRAWN' : 'AVAILABLE',
+      return {
+        statusCode: 200,
+        body: {
+          success: true,
+          message: 'ส่งคำขอถอนเงินแล้ว รอ Admin อนุมัติ 1-3 วันทำการ',
+          withdrawal: {
+            id: withdrawal.id,
+            amount: withdrawal.amount,
+            amountBaht: withdrawal.amountBaht,
+            status: withdrawal.status,
           },
-        })
-
-        remainingToWithdraw -= toWithdrawFromThis
+        },
       }
-
-      return withdrawal
     })
 
-    return NextResponse.json({
-      success: true,
-      message: 'ส่งคำขอถอนเงินแล้ว รอ Admin อนุมัติ 1-3 วันทำการ',
-      withdrawal: {
-        id: result.id,
-        amount: result.amount,
-        amountBaht: result.amountBaht,
-        status: result.status,
-      },
-    })
-
+    return NextResponse.json(result.body, { status: result.statusCode })
   } catch (error) {
-    console.error('Withdraw Firebase error:', error)
-    return NextResponse.json(
-      { error: 'เกิดข้อผิดพลาด' },
-      { status: 500 }
-    )
+    if (error instanceof WithdrawalError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 400 })
+    }
+    logger.error('Withdraw Firebase error', { context: 'withdrawal', error })
+    return NextResponse.json({ error: 'เกิดข้อผิดพลาด' }, { status: 500 })
   }
 }

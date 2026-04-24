@@ -1,11 +1,17 @@
 // app/api/withdraw/route.ts
-// Withdraw API - ต้องยืนยัน SMS OTP + ล็อค 1 เบอร์ = 1 บัญชี
+// User-initiated withdrawal request.
+// Requires: SMS OTP, active Signal + Partner subscription, phone-locked bank account.
+// Balance taken from LedgerEntry. Commissions reserved atomically (AVAILABLE → HOLDING).
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/jwt'
 import { getUserWithSubscription, hasActiveSubscription, hasSignalAccess } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { formatPhoneNumber } from '@/lib/sms'
+import { createWithdrawal, WithdrawalError } from '@/lib/withdrawal'
+import { getMinWithdrawSatang } from '@/lib/system-settings'
+import { getIdempotencyKey, withIdempotency } from '@/lib/idempotency'
+import { logger } from '@/lib/logger'
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,104 +20,85 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // เช็คเงื่อนไข Signal + PRO
     const user = await getUserWithSubscription()
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    const hasSub = hasActiveSubscription(user)
-    const hasSignal = hasSignalAccess(user)
-
-    if (!hasSub || !hasSignal) {
+    if (!hasActiveSubscription(user) || !hasSignalAccess(user)) {
       return NextResponse.json(
         { error: 'ต้องมีทั้ง Signal Access และ PRO Subscription ถึงจะถอนเงินได้' },
-        { status: 403 }
+        { status: 403 },
       )
     }
 
     const { amount, bankCode, accountNumber, accountName, otpCode } = await req.json()
 
-    // ============================================
-    // 1. VALIDATION
-    // ============================================
+    // Validation
     if (!amount || !bankCode || !accountNumber || !accountName) {
       return NextResponse.json(
         { error: 'กรุณากรอกข้อมูลให้ครบถ้วน' },
-        { status: 400 }
+        { status: 400 },
       )
     }
-
     if (!otpCode || otpCode.length !== 6) {
       return NextResponse.json(
         { error: 'กรุณากรอกรหัส OTP 6 หลัก' },
-        { status: 400 }
+        { status: 400 },
       )
     }
-
-    const minAmount = 35000 // 350 บาท = 35000 satang
+    if (!Number.isInteger(amount) || amount <= 0) {
+      return NextResponse.json(
+        { error: 'จำนวนเงินไม่ถูกต้อง' },
+        { status: 400 },
+      )
+    }
+    const minAmount = await getMinWithdrawSatang()
     if (amount < minAmount) {
       return NextResponse.json(
-        { error: `ขั้นต่ำในการถอนคือ ฿${minAmount / 100}` },
-        { status: 400 }
+        { error: `ขั้นต่ำในการถอนคือ ฿${(minAmount / 100).toLocaleString()}` },
+        { status: 400 },
       )
     }
 
-    // ============================================
-    // 2. CHECK PHONE NUMBER
-    // ============================================
+    // Phone
     const userWithPhone = await prisma.user.findUnique({
       where: { id: user.id },
       select: { phone: true },
     })
-
     if (!userWithPhone?.phone) {
       return NextResponse.json(
         { error: 'กรุณาเพิ่มเบอร์โทรศัพท์ในโปรไฟล์ก่อนถอนเงิน' },
-        { status: 400 }
+        { status: 400 },
       )
     }
-
     const formattedPhone = formatPhoneNumber(userWithPhone.phone)
 
-    // ============================================
-    // 3. VERIFY OTP
-    // ============================================
+    // OTP
     const otpRecord = await prisma.otpVerification.findFirst({
-      where: {
-        phone: userWithPhone.phone,
-        type: 'WITHDRAW',
-        verified: false,
-      },
+      where: { phone: userWithPhone.phone, type: 'WITHDRAW', verified: false },
       orderBy: { createdAt: 'desc' },
     })
-
     if (!otpRecord) {
       return NextResponse.json(
         { error: 'ไม่พบรหัส OTP กรุณาขอรหัสใหม่' },
-        { status: 400 }
+        { status: 400 },
       )
     }
-
-    // ตรวจสอบหมดอายุ
     if (new Date() > otpRecord.expiresAt) {
       await prisma.otpVerification.delete({ where: { id: otpRecord.id } })
       return NextResponse.json(
         { error: 'รหัส OTP หมดอายุ กรุณาขอรหัสใหม่' },
-        { status: 400 }
+        { status: 400 },
       )
     }
-
-    // ตรวจสอบจำนวนครั้งที่ลอง
     if (otpRecord.attempts >= 5) {
       await prisma.otpVerification.delete({ where: { id: otpRecord.id } })
       return NextResponse.json(
         { error: 'ลองผิดหลายครั้งเกินไป กรุณาขอรหัสใหม่' },
-        { status: 400 }
+        { status: 400 },
       )
     }
-
-    // ตรวจสอบ OTP
     if (otpRecord.code !== otpCode) {
       await prisma.otpVerification.update({
         where: { id: otpRecord.id },
@@ -120,137 +107,103 @@ export async function POST(req: NextRequest) {
       const remaining = 5 - otpRecord.attempts - 1
       return NextResponse.json(
         { error: `รหัส OTP ไม่ถูกต้อง (เหลือ ${remaining} ครั้ง)` },
-        { status: 400 }
+        { status: 400 },
       )
     }
 
-    // ============================================
-    // 4. CHECK: 1 เบอร์ = 1 บัญชีถอน (ป้องกัน Multi-Account)
-    // ============================================
+    // 1 phone = 1 bank account (global)
     const existingWithdrawal = await prisma.withdrawal.findFirst({
       where: {
-        userId: { not: user.id },  // คนอื่น
+        userId: { not: user.id },
         status: { in: ['PENDING', 'APPROVED', 'PAID'] },
       },
-      include: {
-        user: { select: { phone: true } },
-      },
+      include: { user: { select: { phone: true } } },
     })
-
-    // เช็คว่ามีคนอื่นใช้เบอร์นี้ถอนเงินไปแล้วหรือไม่
     if (existingWithdrawal?.user?.phone) {
       const otherPhone = formatPhoneNumber(existingWithdrawal.user.phone)
       if (otherPhone === formattedPhone) {
         return NextResponse.json(
           { error: 'เบอร์โทรศัพท์นี้ถูกใช้กับบัญชีอื่นแล้ว' },
-          { status: 400 }
+          { status: 400 },
         )
       }
     }
 
-    // ============================================
-    // 5. CHECK BALANCE
-    // ============================================
-    const balance = await prisma.commission.aggregate({
-      where: {
-        userId: user.id,
-        status: 'PENDING',
-      },
-      _sum: {
-        amount: true,
-      },
-    })
-
-    const availableBalance = balance._sum.amount || 0
-
-    if (amount > availableBalance) {
-      return NextResponse.json(
-        { error: 'ยอดเงินไม่เพียงพอ' },
-        { status: 400 }
-      )
-    }
-
-    // ============================================
-    // 6. CHECK PARTNER
-    // ============================================
-    const partner = await prisma.partner.findUnique({
-      where: { userId: user.id },
-    })
-
+    // Partner
+    const partner = await prisma.partner.findUnique({ where: { userId: user.id } })
     if (!partner) {
       return NextResponse.json(
         { error: 'ไม่พบข้อมูล Partner กรุณาสมัคร Partner ก่อน' },
-        { status: 400 }
+        { status: 400 },
       )
     }
 
-    // ============================================
-    // 7. CREATE WITHDRAWAL REQUEST
-    // ============================================
-    
-    // Mark OTP as verified
-    await prisma.otpVerification.update({
-      where: { id: otpRecord.id },
-      data: { verified: true },
-    })
+    // Idempotency: same client with same key gets the same response
+    const idempKey = getIdempotencyKey(req)
+    const actorIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null
+    const actorUa = req.headers.get('user-agent')
 
-    // สร้างคำขอถอน
-    const withdrawal = await prisma.withdrawal.create({
-      data: {
+    const result = await withIdempotency(idempKey, 'withdraw_create', async () => {
+      const withdrawal = await createWithdrawal({
         userId: user.id,
         partnerId: partner.id,
-        amount,
-        amountBaht: amount / 100,
+        amountSatang: amount,
         bankCode,
         accountNumber,
         accountName,
-        phone: userWithPhone.phone,
-        status: 'PENDING',
-      },
+        phone: userWithPhone.phone!,
+        actorIp,
+        actorUa,
+      })
+
+      // Mark OTP verified + delete in one go (outside the withdrawal tx is OK)
+      await prisma.otpVerification.update({
+        where: { id: otpRecord.id },
+        data: { verified: true },
+      })
+      await prisma.otpVerification.delete({ where: { id: otpRecord.id } }).catch(() => {})
+
+      return {
+        statusCode: 200,
+        body: {
+          success: true,
+          message: 'ส่งคำขอถอนเงินแล้ว รอ Admin อนุมัติ 1-3 วันทำการ',
+          withdrawal: {
+            id: withdrawal.id,
+            amount: withdrawal.amount,
+            status: withdrawal.status,
+          },
+        },
+      }
     })
 
-    // ลบ OTP
-    await prisma.otpVerification.delete({ where: { id: otpRecord.id } })
-
-    return NextResponse.json({
-      success: true,
-      message: 'ส่งคำขอถอนเงินแล้ว รอ Admin อนุมัติ 1-3 วันทำการ',
-      withdrawal: {
-        id: withdrawal.id,
-        amount: withdrawal.amount,
-        status: withdrawal.status,
-      },
-    })
-
+    return NextResponse.json(result.body, { status: result.statusCode })
   } catch (error) {
-    console.error('Withdraw error:', error)
-    return NextResponse.json(
-      { error: 'เกิดข้อผิดพลาด' },
-      { status: 500 }
-    )
+    if (error instanceof WithdrawalError) {
+      const status =
+        error.code === 'INSUFFICIENT_BALANCE' || error.code === 'BELOW_MIN' ? 400 : 400
+      return NextResponse.json({ error: error.message, code: error.code }, { status })
+    }
+    logger.error('Withdraw error', { context: 'withdrawal', error })
+    return NextResponse.json({ error: 'เกิดข้อผิดพลาด' }, { status: 500 })
   }
 }
 
 // GET - ดูประวัติการถอน
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
     const payload = await getCurrentUser()
     if (!payload) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-
     const withdrawals = await prisma.withdrawal.findMany({
       where: { userId: payload.userId },
       orderBy: { createdAt: 'desc' },
       take: 20,
     })
-
     return NextResponse.json({ withdrawals })
   } catch (error) {
-    console.error('Get withdrawals error:', error)
-    return NextResponse.json(
-      { error: 'เกิดข้อผิดพลาด' },
-      { status: 500 }
-    )
+    logger.error('Get withdrawals error', { context: 'withdrawal', error })
+    return NextResponse.json({ error: 'เกิดข้อผิดพลาด' }, { status: 500 })
   }
 }

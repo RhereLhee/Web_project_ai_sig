@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/jwt"
 import { prisma } from "@/lib/prisma"
 import { generatePayload, generateQRCode, PROMPTPAY_CONFIG } from "@/lib/promptpay"
 import { validateCSRF } from "@/lib/csrf"
+import { buildOrderPaymentFields, isFirstPaymentForBuyer } from "@/lib/order-helpers"
 
 // ============================================
 // SIGNAL PLAN CONFIG - ราคาใหม่
@@ -90,44 +91,58 @@ export async function POST(request: NextRequest) {
     // Convert to satang
     const finalAmount = finalPrice * 100
 
-    // Generate QR Code
-    let qrCodeData = null
-    try {
-      const qrPayload = generatePayload(PROMPTPAY_CONFIG.id, { amount: finalPrice })
-      qrCodeData = await generateQRCode(qrPayload)
-    } catch (err) {
-      console.error("QR generation error:", err)
-    }
+    // Build order with unique-amount suffix + first-payment flag in one tx
+    const { order, expectedAmountBaht } = await prisma.$transaction(async (tx) => {
+      const payFields = await buildOrderPaymentFields(tx, finalAmount)
+      const firstPayment = await isFirstPaymentForBuyer(tx, user.id)
 
-    // Create Order record
-    const order = await prisma.order.create({
-      data: {
-        orderNumber,
-        userId: user.id,
-        orderType: 'SIGNAL',
-        originalAmount: planConfig.price * 100,
-        discountAmount: hasReferral ? SIGNAL_CONFIG.referralDiscount * 100 : 0,
-        affiliatePool: 30000, // 300 บาท สำหรับ affiliate
-        finalAmount,
-        status: 'PENDING',
-        paymentMethod: paymentMethod || 'QR_CODE',
-        qrCodeData,
-        metadata: {
-          months: planConfig.months,
-          bonus: planConfig.bonus,
-          totalMonths: planConfig.months + planConfig.bonus,
-          hasReferral,
+      // Generate QR with EXPECTED amount (base + suffix) so bank transfer matches exactly
+      const expectedBaht = payFields.expectedAmountSatang / 100
+      let qrCodeData: string | null = null
+      try {
+        const qrPayload = generatePayload(PROMPTPAY_CONFIG.id, { amount: expectedBaht })
+        qrCodeData = await generateQRCode(qrPayload)
+      } catch (err) {
+        console.error("QR generation error:", err)
+      }
+
+      const created = await tx.order.create({
+        data: {
+          orderNumber,
+          userId: user.id,
+          orderType: 'SIGNAL',
+          originalAmount: planConfig.price * 100,
+          discountAmount: hasReferral ? SIGNAL_CONFIG.referralDiscount * 100 : 0,
+          // affiliatePool is now computed dynamically at approve time (30% of finalAmount)
+          affiliatePool: 0,
+          finalAmount,
+          expectedAmountSatang: payFields.expectedAmountSatang,
+          amountSuffix: payFields.amountSuffix,
+          expiresAt: payFields.expiresAt,
+          isFirstPayment: firstPayment,
+          status: 'PENDING',
+          paymentMethod: paymentMethod || 'QR_CODE',
+          qrCodeData,
+          metadata: {
+            months: planConfig.months,
+            bonus: planConfig.bonus,
+            totalMonths: planConfig.months + planConfig.bonus,
+            hasReferral,
+          },
         },
-      },
+      })
+      return { order: created, expectedAmountBaht: expectedBaht }
     })
 
     return NextResponse.json({
       success: true,
       orderNumber: order.orderNumber,
       orderId: order.id,
-      finalAmount,
-      finalPrice, // ราคาเป็นบาท
-      qrCodeData,
+      finalAmount: order.expectedAmountSatang, // EXACT amount with suffix
+      finalPrice: expectedAmountBaht,
+      amountSuffix: order.amountSuffix,
+      expiresAt: order.expiresAt,
+      qrCodeData: order.qrCodeData,
       paymentMethod: paymentMethod || 'QR_CODE',
       promptPayId: PROMPTPAY_CONFIG.id,
       promptPayName: PROMPTPAY_CONFIG.name,

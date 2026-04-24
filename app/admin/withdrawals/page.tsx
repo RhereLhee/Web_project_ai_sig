@@ -35,6 +35,7 @@ export default async function AdminWithdrawalsPage({ searchParams }: Props) {
   const params = await searchParams
   const page = parseInt(params.page || '1')
   const { withdrawals, total, pages } = await getWithdrawals(params.status, page)
+  const currentStatus = params.status || 'ALL'
 
   const statusColors: Record<string, string> = {
     PENDING: 'bg-yellow-100 text-yellow-700',
@@ -52,8 +53,14 @@ export default async function AdminWithdrawalsPage({ searchParams }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-gray-900">จัดการถอนเงิน ({total})</h1>
+        <a
+          href={`/api/admin/withdrawals/export?status=${currentStatus}`}
+          className="px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700"
+        >
+          ดาวน์โหลด CSV
+        </a>
       </div>
 
       {/* Filters */}
@@ -94,7 +101,13 @@ export default async function AdminWithdrawalsPage({ searchParams }: Props) {
               {withdrawals.map((w) => (
                 <tr key={w.id} className="hover:bg-gray-50">
                   <td className="p-3">
-                    <p className="font-medium text-gray-900">{w.user.name || '-'}</p>
+                    <Link
+                      href={`/admin/withdrawals/${w.id}`}
+                      className="font-medium text-gray-900 hover:text-emerald-600 hover:underline"
+                    >
+                      {w.user.name || '-'}
+                    </Link>
+                    <p className="text-[10px] text-gray-400 font-mono mt-0.5">{w.withdrawalNumber}</p>
                   </td>
                   <td className="p-3">
                     <div className="space-y-1">

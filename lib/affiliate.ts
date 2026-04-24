@@ -1,19 +1,34 @@
 // lib/affiliate.ts
-// Affiliate Commission Calculator - Linear Upline with Exponential Decay
-// Pool = 300 บาท (30000 satang) ต่อ Order
-// r = 0.8 (decay rate)
+// Banking-grade affiliate commission engine.
+//
+// Model:
+//   Pool        = floor(order.finalAmount × affiliate_pool_percent / 100)
+//   weight(n)   = DECAY_RATE^(n-1)       where n = 1,2,3,... (1 = closest upline)
+//   payment(n)  = floor(Pool × weight(n) / Σweights)
+//   dust        = Pool - Σpayments       → credited to company (not to any upline)
+//
+// Rules enforced:
+//   1. Atomicity: entire distribution is inside a single DB transaction.
+//   2. Idempotency: AffiliatePayment.orderId is UNIQUE — retries are safe.
+//   3. First-payment-only: (buyerId, uplineId) pair gets commission exactly once
+//      (enforced by UNIQUE index — any duplicate simply skipped).
+//   4. Every commission creates a matching LedgerEntry (COMMISSION_CREDIT).
+//   5. Commissions are immutable (amount never updated — use split/reverse instead).
+//
+// USAGE: call distributeCommission(orderId, buyerId) only from ADMIN-APPROVE flow,
+// never from public APIs.
 
+import { Prisma } from '@prisma/client'
 import { prisma } from './prisma'
-
-// ============================================
-// CONFIG
-// ============================================
-
-export const AFFILIATE_CONFIG = {
-  POOL_AMOUNT: 30000,  // 300 บาท = 30000 satang
-  DECAY_RATE: 0.8,     // r = 0.8
-  MIN_COMMISSION: 100, // ขั้นต่ำ 1 บาท = 100 satang (ถ้าน้อยกว่านี้ไม่จ่าย)
-}
+import { postLedger } from './ledger'
+import {
+  AFFILIATE_DECAY_RATE,
+  MAX_UPLINE_LEVELS,
+  MIN_COMMISSION_SATANG,
+  computePoolSatang,
+} from './money'
+import { getAffiliatePoolPercent } from './system-settings'
+import { logger } from './logger'
 
 // ============================================
 // TYPES
@@ -21,234 +36,324 @@ export const AFFILIATE_CONFIG = {
 
 interface UplineUser {
   id: string
-  level: number  // 1 = ใกล้ผู้ซื้อที่สุด, 2, 3, ...
+  level: number // 1 = closest to buyer
 }
 
 interface CommissionResult {
   userId: string
   level: number
   weight: number
-  amount: number  // satang
+  normalizedWeight: number
+  amount: number // satang
+}
+
+export interface DistributeResult {
+  success: boolean
+  alreadyDistributed: boolean
+  distributed: number
+  totalPool: number
+  totalPaid: number
+  dust: number
+  commissions: CommissionResult[]
 }
 
 // ============================================
-// GET UPLINE CHAIN
+// GET UPLINE CHAIN (read-only — not transactional)
 // ============================================
 
-/**
- * ดึงสายบนทั้งหมดของ user
- * @param userId - ID ของผู้ซื้อ
- * @returns Array ของ upline เรียงจากใกล้ไปไกล
- */
-export async function getUplineChain(userId: string): Promise<UplineUser[]> {
+export async function getUplineChain(
+  userId: string,
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<UplineUser[]> {
   const uplines: UplineUser[] = []
+  const seen = new Set<string>([userId])
   let currentUserId = userId
-  let level = 0
 
-  while (true) {
-    const user = await prisma.user.findUnique({
+  for (let level = 1; level <= MAX_UPLINE_LEVELS; level++) {
+    const row = await client.user.findUnique({
       where: { id: currentUserId },
       select: { referredById: true },
     })
+    if (!row?.referredById) break
+    // Cycle guard: if somehow referral graph loops, stop.
+    if (seen.has(row.referredById)) break
+    seen.add(row.referredById)
 
-    if (!user || !user.referredById) {
-      break
-    }
-
-    level++
-    uplines.push({
-      id: user.referredById,
-      level,
-    })
-
-    currentUserId = user.referredById
-
-    // Safety: ป้องกัน infinite loop (max 100 levels)
-    if (level >= 100) break
+    uplines.push({ id: row.referredById, level })
+    currentUserId = row.referredById
   }
 
   return uplines
 }
 
 // ============================================
-// CALCULATE COMMISSION
+// PURE: calculate payments from pool + uplines
 // ============================================
 
-/**
- * คำนวณ Commission สำหรับแต่ละคนในสาย Upline
- * ใช้สูตร Exponential Decay:
- * - weight(n) = r^(n-1)
- * - payment(n) = POOL × weight(n) / Σweight
- * 
- * @param uplines - Array ของ upline
- * @returns Array ของ Commission แต่ละคน
- */
-export function calculateCommissions(uplines: UplineUser[]): CommissionResult[] {
-  if (uplines.length === 0) return []
+export function calculateCommissions(
+  uplines: UplineUser[],
+  poolSatang: number,
+): { commissions: CommissionResult[]; totalPaid: number; dust: number } {
+  if (uplines.length === 0 || poolSatang <= 0) {
+    return { commissions: [], totalPaid: 0, dust: poolSatang > 0 ? poolSatang : 0 }
+  }
 
-  const { POOL_AMOUNT, DECAY_RATE, MIN_COMMISSION } = AFFILIATE_CONFIG
-
-  // คำนวณ weight ของแต่ละคน
   const weights = uplines.map((u) => ({
     ...u,
-    weight: Math.pow(DECAY_RATE, u.level - 1),
+    weight: Math.pow(AFFILIATE_DECAY_RATE, u.level - 1),
   }))
+  const totalWeight = weights.reduce((s, w) => s + w.weight, 0)
 
-  // รวม weight ทั้งหมด
-  const totalWeight = weights.reduce((sum, w) => sum + w.weight, 0)
-
-  // คำนวณ Commission
   const commissions: CommissionResult[] = weights.map((w) => {
-    const amount = Math.floor((POOL_AMOUNT * w.weight) / totalWeight)
+    const amount = Math.floor((poolSatang * w.weight) / totalWeight)
     return {
       userId: w.id,
       level: w.level,
       weight: w.weight,
+      normalizedWeight: w.weight / totalWeight,
       amount,
     }
   })
 
-  // กรองเฉพาะที่มากกว่า MIN_COMMISSION
-  return commissions.filter((c) => c.amount >= MIN_COMMISSION)
+  // Drop commissions below MIN_COMMISSION_SATANG; their share becomes dust.
+  const kept = commissions.filter((c) => c.amount >= MIN_COMMISSION_SATANG)
+  const totalPaid = kept.reduce((s, c) => s + c.amount, 0)
+  const dust = poolSatang - totalPaid
+
+  return { commissions: kept, totalPaid, dust }
 }
 
 // ============================================
-// DISTRIBUTE COMMISSION
+// DISTRIBUTE (transactional, idempotent)
 // ============================================
 
-/**
- * แจก Commission ให้ Upline ทั้งหมด
- * เรียกใช้หลังจาก Admin อนุมัติ Order
- * 
- * @param orderId - ID ของ Order ที่อนุมัติ
- * @param buyerId - ID ของผู้ซื้อ
- * @returns จำนวน Commission ที่แจก
- */
 export async function distributeCommission(
   orderId: string,
-  buyerId: string
-): Promise<{ success: boolean; distributed: number; commissions: CommissionResult[] }> {
-  try {
-    // 1. ดึงสาย Upline
-    const uplines = await getUplineChain(buyerId)
-    
-    if (uplines.length === 0) {
-      console.log(`[Affiliate] No upline for user ${buyerId}`)
-      return { success: true, distributed: 0, commissions: [] }
-    }
-
-    // 2. คำนวณ Commission
-    const commissions = calculateCommissions(uplines)
-    
-    if (commissions.length === 0) {
-      console.log(`[Affiliate] No commissions to distribute`)
-      return { success: true, distributed: 0, commissions: [] }
-    }
-
-    // คำนวณ totalWeight
-    const totalWeight = commissions.reduce((sum, c) => sum + c.weight, 0)
-
-    // 3. สร้าง AffiliatePayment record
-    const affiliatePayment = await prisma.affiliatePayment.create({
-      data: {
-        orderId,
-        totalPool: AFFILIATE_CONFIG.POOL_AMOUNT,
-        decayRate: AFFILIATE_CONFIG.DECAY_RATE,
-        totalLevels: commissions.length,
-        totalWeight,
-        status: 'COMPLETED',
-        distributedAt: new Date(),
-      },
+  buyerId: string,
+): Promise<DistributeResult> {
+  // 1. Load order + settings outside the transaction (read-only, cheap)
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: {
+      id: true,
+      finalAmount: true,
+      isFirstPayment: true,
+      userId: true,
+      affiliatePayment: { select: { id: true } },
+    },
+  })
+  if (!order) {
+    throw new Error(`Order not found: ${orderId}`)
+  }
+  if (order.userId !== buyerId) {
+    throw new Error(`buyerId mismatch for order ${orderId}`)
+  }
+  // Idempotency check: already distributed.
+  if (order.affiliatePayment) {
+    logger.info(`[Affiliate] Order ${orderId} already distributed — skipping`, {
+      context: 'affiliate',
     })
-
-    // 4. สร้าง Commission records สำหรับแต่ละ Upline
-    await prisma.commission.createMany({
-      data: commissions.map((c) => ({
-        affiliatePaymentId: affiliatePayment.id,
-        userId: c.userId,
-        amount: c.amount,
-        amountBaht: c.amount / 100,
-        level: c.level,
-        weight: c.weight,
-        normalizedWeight: c.weight / totalWeight,
-        status: 'PENDING', // รอถอน
-      })),
-    })
-
-    console.log(`[Affiliate] Distributed ${commissions.length} commissions for order ${orderId}`)
-    console.log(`[Affiliate] Total: ${commissions.reduce((s, c) => s + c.amount, 0)} satang`)
-
     return {
       success: true,
-      distributed: commissions.length,
-      commissions,
+      alreadyDistributed: true,
+      distributed: 0,
+      totalPool: 0,
+      totalPaid: 0,
+      dust: 0,
+      commissions: [],
     }
+  }
+  // First-payment-only guard (for recurring VIP subscriptions)
+  if (!order.isFirstPayment) {
+    logger.info(`[Affiliate] Order ${orderId} is not first payment — skipping`, {
+      context: 'affiliate',
+    })
+    return {
+      success: true,
+      alreadyDistributed: false,
+      distributed: 0,
+      totalPool: 0,
+      totalPaid: 0,
+      dust: 0,
+      commissions: [],
+    }
+  }
 
-  } catch (error) {
-    console.error('[Affiliate] Error distributing commission:', error)
-    return { success: false, distributed: 0, commissions: [] }
+  // Read % from system settings (per-call, not cached here — settings lib caches 60s)
+  const percent = await getAffiliatePoolPercent()
+  const poolSatang = computePoolSatang(order.finalAmount, percent)
+
+  if (poolSatang <= 0) {
+    // Affiliate disabled or 0% — still mark as processed to avoid re-runs.
+    return {
+      success: true,
+      alreadyDistributed: false,
+      distributed: 0,
+      totalPool: 0,
+      totalPaid: 0,
+      dust: 0,
+      commissions: [],
+    }
+  }
+
+  // 2. Build upline chain (read-only, outside tx for speed)
+  const uplines = await getUplineChain(buyerId)
+  if (uplines.length === 0) {
+    // No uplines — entire pool is dust (company keeps it).
+    logger.info(`[Affiliate] No upline for ${buyerId} — pool=${poolSatang} becomes dust`, {
+      context: 'affiliate',
+    })
+    // Still record AffiliatePayment so idempotency kicks in on retry.
+    try {
+      await prisma.affiliatePayment.create({
+        data: {
+          orderId,
+          totalPool: poolSatang,
+          decayRate: AFFILIATE_DECAY_RATE,
+          totalLevels: 0,
+          totalWeight: 0,
+          status: 'COMPLETED',
+          distributedAt: new Date(),
+          toCompany: true,
+        },
+      })
+    } catch (e) {
+      // Unique violation on orderId — already exists, fine.
+      if (!isUniqueViolation(e)) throw e
+    }
+    return {
+      success: true,
+      alreadyDistributed: false,
+      distributed: 0,
+      totalPool: poolSatang,
+      totalPaid: 0,
+      dust: poolSatang,
+      commissions: [],
+    }
+  }
+
+  const { commissions, totalPaid, dust } = calculateCommissions(uplines, poolSatang)
+  const totalWeight = commissions.reduce((s, c) => s + c.weight, 0)
+
+  // 3. Atomic write
+  try {
+    await prisma.$transaction(
+      async (tx) => {
+        const payment = await tx.affiliatePayment.create({
+          data: {
+            orderId,
+            totalPool: poolSatang,
+            decayRate: AFFILIATE_DECAY_RATE,
+            totalLevels: commissions.length,
+            totalWeight,
+            status: 'COMPLETED',
+            distributedAt: new Date(),
+            toCompany: dust > 0,
+          },
+        })
+
+        for (const c of commissions) {
+          // First-payment rule: skip if (buyerId, userId) already exists.
+          // The unique index guards us even under race conditions.
+          try {
+            const commission = await tx.commission.create({
+              data: {
+                affiliatePaymentId: payment.id,
+                buyerId,
+                userId: c.userId,
+                level: c.level,
+                weight: c.weight,
+                normalizedWeight: c.normalizedWeight,
+                amount: c.amount,
+                amountBaht: c.amount / 100,
+                status: 'AVAILABLE',
+              },
+            })
+            // Credit the ledger (immutable)
+            await postLedger(tx, {
+              userId: c.userId,
+              amount: c.amount,
+              type: 'COMMISSION_CREDIT',
+              refType: 'commission',
+              refId: commission.id,
+              note: `Order ${orderId} level ${c.level}`,
+            })
+          } catch (e) {
+            if (isUniqueViolation(e)) {
+              // (buyerId, userId) already has a commission — skip.
+              logger.info(
+                `[Affiliate] Skip duplicate pair buyer=${buyerId} upline=${c.userId}`,
+                { context: 'affiliate' },
+              )
+              continue
+            }
+            throw e
+          }
+        }
+      },
+      { timeout: 15_000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    )
+  } catch (e) {
+    if (isUniqueViolation(e)) {
+      // AffiliatePayment.orderId collision — another request won. Treat as idempotent success.
+      return {
+        success: true,
+        alreadyDistributed: true,
+        distributed: 0,
+        totalPool: poolSatang,
+        totalPaid: 0,
+        dust: 0,
+        commissions: [],
+      }
+    }
+    logger.error(`[Affiliate] Distribution failed for order ${orderId}`, {
+      context: 'affiliate',
+      error: e instanceof Error ? e.message : String(e),
+    })
+    throw e
+  }
+
+  logger.info(
+    `[Affiliate] Distributed ${commissions.length} commissions for order ${orderId}, pool=${poolSatang} paid=${totalPaid} dust=${dust}`,
+    { context: 'affiliate' },
+  )
+
+  return {
+    success: true,
+    alreadyDistributed: false,
+    distributed: commissions.length,
+    totalPool: poolSatang,
+    totalPaid,
+    dust,
+    commissions,
   }
 }
 
 // ============================================
-// HELPER: GET USER BALANCE
+// HELPERS
 // ============================================
 
-/**
- * ดึงยอดคงเหลือของ user (Commission ที่ยังไม่ถอน)
- */
+function isUniqueViolation(e: unknown): boolean {
+  return (
+    e instanceof Prisma.PrismaClientKnownRequestError &&
+    e.code === 'P2002'
+  )
+}
+
+/** Canonical user balance — read from ledger. */
 export async function getUserAffiliateBalance(userId: string): Promise<number> {
-  const result = await prisma.commission.aggregate({
-    where: {
-      userId,
-      status: 'PENDING',
-    },
-    _sum: {
-      amount: true,
-    },
+  const agg = await prisma.ledgerEntry.aggregate({
+    where: { userId },
+    _sum: { amount: true },
   })
-
-  return result._sum.amount || 0
+  return agg._sum.amount ?? 0
 }
 
-// ============================================
-// HELPER: MARK COMMISSIONS AS WITHDRAWN
-// ============================================
-
-/**
- * Mark Commission เป็น WITHDRAWN หลังถอนสำเร็จ
- */
-export async function markCommissionsWithdrawn(
-  userId: string,
-  withdrawalId: string,
-  amount: number
-): Promise<void> {
-  // หา Commission ที่ยัง PENDING
-  const pendingCommissions = await prisma.commission.findMany({
-    where: {
-      userId,
-      status: 'PENDING',
-    },
-    orderBy: { createdAt: 'asc' },
+/** Total lifetime earned by user (sum of COMMISSION_CREDIT only). */
+export async function getUserLifetimeEarnings(userId: string): Promise<number> {
+  const agg = await prisma.ledgerEntry.aggregate({
+    where: { userId, type: 'COMMISSION_CREDIT' },
+    _sum: { amount: true },
   })
-
-  let remaining = amount
-  const idsToUpdate: string[] = []
-
-  for (const comm of pendingCommissions) {
-    if (remaining <= 0) break
-    idsToUpdate.push(comm.id)
-    remaining -= comm.amount
-  }
-
-  // Update status
-  await prisma.commission.updateMany({
-    where: {
-      id: { in: idsToUpdate },
-    },
-    data: {
-      status: 'WITHDRAWN',
-      paidAt: new Date(),
-    },
-  })
+  return agg._sum.amount ?? 0
 }

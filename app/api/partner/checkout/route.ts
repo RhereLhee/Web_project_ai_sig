@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/jwt"
 import { prisma } from "@/lib/prisma"
 import { generatePromptPayQR } from "@/lib/promptpay"
 import { validateCSRF } from "@/lib/csrf"
+import { buildOrderPaymentFields, isFirstPaymentForBuyer } from "@/lib/order-helpers"
 
 // ============================================
 // Partner Plans - ราคา 199 บาท (satang)
@@ -50,9 +51,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "แพ็กเกจไม่ถูกต้อง" }, { status: 400 })
     }
 
-    const price = plan.price // satang
+    const price = plan.price // satang (base — before suffix)
     const bonus = plan.bonus
-    const priceBaht = price / 100
 
     // Validate bank info
     const cleanAccountNumber = accountNumber.replace(/\D/g, '')
@@ -98,40 +98,55 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Generate QR Code
-    let qrCodeData = ''
-    try {
-      qrCodeData = await generatePromptPayQR(PROMPTPAY_ID, priceBaht)
-    } catch (e) {
-      console.error('QR generation error:', e)
-      // ถ้าสร้าง QR ไม่ได้ ก็ให้โอนเอง
-    }
+    // Build order with unique-amount suffix + TTL + first-payment flag (transactional)
+    const { order, expectedAmountBaht } = await prisma.$transaction(async (tx) => {
+      const payFields = await buildOrderPaymentFields(tx, price)
+      const firstPayment = await isFirstPaymentForBuyer(tx, userId)
 
-    // Create Order (PENDING)
-    const order = await prisma.order.create({
-      data: {
-        partnerId: partner.id,
-        userId,
-        orderType: 'PARTNER',
-        originalAmount: price,
-        finalAmount: price,
-        status: 'PENDING',
-        qrCodeData: qrCodeData || null,
-        metadata: {
-          months,
-          bonus,
-          totalMonths,
-          promptPayId: PROMPTPAY_ID,
-        }
+      // Generate QR with the EXPECTED amount (base + suffix) so payment matches exactly
+      const expectedBaht = payFields.expectedAmountSatang / 100
+      let qrCodeData = ''
+      try {
+        qrCodeData = await generatePromptPayQR(PROMPTPAY_ID!, expectedBaht)
+      } catch {
+        // Fall back to manual transfer instructions
       }
+
+      const created = await tx.order.create({
+        data: {
+          partnerId: partner.id,
+          userId,
+          orderType: 'PARTNER',
+          originalAmount: price,
+          finalAmount: price,
+          expectedAmountSatang: payFields.expectedAmountSatang,
+          amountSuffix: payFields.amountSuffix,
+          expiresAt: payFields.expiresAt,
+          isFirstPayment: firstPayment,
+          status: 'PENDING',
+          qrCodeData: qrCodeData || null,
+          metadata: {
+            months,
+            bonus,
+            totalMonths,
+            promptPayId: PROMPTPAY_ID,
+          },
+        },
+      })
+
+      return { order: created, expectedAmountBaht: expectedBaht }
     })
 
     return NextResponse.json({
       success: true,
       orderId: order.id,
       orderNumber: order.orderNumber,
-      finalPrice: priceBaht,
-      qrCodeData,
+      // IMPORTANT: return the exact amount customer must transfer (including 1-99 satang suffix)
+      expectedAmount: expectedAmountBaht,
+      amountSuffix: order.amountSuffix,
+      expiresAt: order.expiresAt,
+      finalPrice: expectedAmountBaht, // backward-compat alias
+      qrCodeData: order.qrCodeData,
       promptPayId: PROMPTPAY_ID,
     })
 
