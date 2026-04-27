@@ -1,22 +1,29 @@
 // app/(auth)/register/RegisterForm.tsx
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import Image from "next/image"
 
 type Step = 'form' | 'otp' | 'complete'
 
+type FieldKey = 'name' | 'email' | 'phone' | 'password' | 'confirmPassword'
+type FieldErrors = Partial<Record<FieldKey, string>>
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const PHONE_RE = /^0[689]\d{8}$/
+
 export default function RegisterForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const refCode = searchParams.get("ref") || ""
-  
+
   const [step, setStep] = useState<Step>('form')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
-  
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
+
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -25,9 +32,42 @@ export default function RegisterForm() {
     confirmPassword: "",
     referralCode: refCode,
   })
-  
+
   const [otp, setOtp] = useState("")
   const [countdown, setCountdown] = useState(0)
+  const otpAutoSubmittedRef = useRef(false)
+
+  const inputCls = (hasError: boolean) =>
+    `w-full bg-gray-800/50 border rounded-lg px-4 py-3 text-white placeholder-gray-500 outline-none transition ${
+      hasError
+        ? 'border-red-500/70 focus:border-red-500 focus:ring-1 focus:ring-red-500'
+        : 'border-gray-600/50 focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
+    }`
+
+  const setField = (key: FieldKey | 'referralCode', value: string) => {
+    setFormData(prev => ({ ...prev, [key]: value }))
+    if (key !== 'referralCode' && fieldErrors[key]) {
+      setFieldErrors(prev => {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+    }
+  }
+
+  const validateForm = (): FieldErrors => {
+    const errs: FieldErrors = {}
+    if (!formData.name.trim()) errs.name = 'กรุณากรอกชื่อ'
+    if (!formData.email.trim()) errs.email = 'กรุณากรอกอีเมล'
+    else if (!EMAIL_RE.test(formData.email.trim())) errs.email = 'รูปแบบอีเมลไม่ถูกต้อง'
+    if (!formData.phone.trim()) errs.phone = 'กรุณากรอกเบอร์โทรศัพท์'
+    else if (!PHONE_RE.test(formData.phone.replace(/[^\d]/g, ''))) errs.phone = 'เบอร์โทรไม่ถูกต้อง (เช่น 0812345678)'
+    if (!formData.password) errs.password = 'กรุณากรอกรหัสผ่าน'
+    else if (formData.password.length < 6) errs.password = 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร'
+    if (!formData.confirmPassword) errs.confirmPassword = 'กรุณายืนยันรหัสผ่าน'
+    else if (formData.password && formData.password !== formData.confirmPassword) errs.confirmPassword = 'รหัสผ่านไม่ตรงกัน'
+    return errs
+  }
 
   // ============================================
   // STEP 1: Submit Form Send Email OTP
@@ -36,25 +76,23 @@ export default function RegisterForm() {
     e.preventDefault()
     setError("")
 
-    if (formData.password !== formData.confirmPassword) {
-      setError("รหัสผ่านไม่ตรงกัน")
+    const errs = validateForm()
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs)
       return
     }
-
-    if (formData.password.length < 6) {
-      setError("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร")
-      return
-    }
+    setFieldErrors({})
 
     setLoading(true)
 
     try {
-      // ส่ง Email OTP
+      // ส่ง Email OTP — ส่ง phone ไปด้วยเพื่อให้ backend เช็คซ้ำก่อน OTP
       const res = await fetch("/api/auth/email-otp/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           email: formData.email,
+          phone: formData.phone,
           type: 'REGISTER',
         }),
       })
@@ -62,7 +100,12 @@ export default function RegisterForm() {
       const data = await res.json()
 
       if (!res.ok) {
-        setError(data.error || "เกิดข้อผิดพลาด")
+        // Backend อาจตอบกลับ field-specific error มาด้วย
+        if (data?.field === 'email' || data?.field === 'phone') {
+          setFieldErrors({ [data.field]: data.error })
+        } else {
+          setError(data.error || "เกิดข้อผิดพลาด")
+        }
         return
       }
 
@@ -104,6 +147,8 @@ export default function RegisterForm() {
 
       if (!verifyRes.ok) {
         setError(verifyData.error || "รหัส OTP ไม่ถูกต้อง")
+        setOtp("")
+        otpAutoSubmittedRef.current = false
         return
       }
 
@@ -162,12 +207,14 @@ export default function RegisterForm() {
   const resendOtp = async () => {
     setLoading(true)
     setError("")
+    otpAutoSubmittedRef.current = false
+    setOtp("")
 
     try {
       const res = await fetch("/api/auth/email-otp/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           email: formData.email,
           type: 'REGISTER',
         }),
@@ -185,6 +232,18 @@ export default function RegisterForm() {
       setLoading(false)
     }
   }
+
+  // Auto-submit เมื่อกรอก OTP ครบ 6 หลัก — กันยิงซ้ำด้วย ref
+  useEffect(() => {
+    if (step === 'otp' && otp.length === 6 && !loading && !otpAutoSubmittedRef.current) {
+      otpAutoSubmittedRef.current = true
+      handleVerifyOtp()
+    }
+    if (otp.length < 6) {
+      otpAutoSubmittedRef.current = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otp, step])
 
   // ============================================
   // Background Component
@@ -332,7 +391,7 @@ export default function RegisterForm() {
           </div>
           <p className="text-gray-400 text-center mb-6">สมัครสมาชิก</p>
 
-          <form onSubmit={handleSubmitForm} className="space-y-4">
+          <form onSubmit={handleSubmitForm} className="space-y-4" noValidate>
             {error && (
               <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-400 text-sm text-center">
                 {error}
@@ -345,11 +404,11 @@ export default function RegisterForm() {
               <input
                 type="text"
                 value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition"
+                onChange={(e) => setField('name', e.target.value)}
+                className={inputCls(!!fieldErrors.name)}
                 placeholder="ชื่อของคุณ"
-                required
               />
+              {fieldErrors.name && <p className="text-xs text-red-400 mt-1">{fieldErrors.name}</p>}
             </div>
 
             {/* Email */}
@@ -358,12 +417,13 @@ export default function RegisterForm() {
               <input
                 type="email"
                 value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition"
+                onChange={(e) => setField('email', e.target.value)}
+                className={inputCls(!!fieldErrors.email)}
                 placeholder="email@example.com"
-                required
               />
-              <p className="text-xs text-gray-500 mt-1">* ใช้ยืนยันตัวตนด้วย OTP</p>
+              {fieldErrors.email
+                ? <p className="text-xs text-red-400 mt-1">{fieldErrors.email}</p>
+                : <p className="text-xs text-gray-500 mt-1">* ใช้ยืนยันตัวตนด้วย OTP</p>}
             </div>
 
             {/* Phone */}
@@ -372,11 +432,11 @@ export default function RegisterForm() {
               <input
                 type="tel"
                 value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition"
+                onChange={(e) => setField('phone', e.target.value)}
+                className={inputCls(!!fieldErrors.phone)}
                 placeholder="08X-XXX-XXXX"
-                required
               />
+              {fieldErrors.phone && <p className="text-xs text-red-400 mt-1">{fieldErrors.phone}</p>}
             </div>
 
             {/* Password */}
@@ -385,12 +445,11 @@ export default function RegisterForm() {
               <input
                 type="password"
                 value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition"
+                onChange={(e) => setField('password', e.target.value)}
+                className={inputCls(!!fieldErrors.password)}
                 placeholder="อย่างน้อย 6 ตัวอักษร"
-                minLength={6}
-                required
               />
+              {fieldErrors.password && <p className="text-xs text-red-400 mt-1">{fieldErrors.password}</p>}
             </div>
 
             {/* Confirm Password */}
@@ -399,12 +458,11 @@ export default function RegisterForm() {
               <input
                 type="password"
                 value={formData.confirmPassword}
-                onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition"
+                onChange={(e) => setField('confirmPassword', e.target.value)}
+                className={inputCls(!!fieldErrors.confirmPassword)}
                 placeholder="กรอกรหัสผ่านอีกครั้ง"
-                minLength={6}
-                required
               />
+              {fieldErrors.confirmPassword && <p className="text-xs text-red-400 mt-1">{fieldErrors.confirmPassword}</p>}
             </div>
 
             {/* Referral Code */}
@@ -415,16 +473,16 @@ export default function RegisterForm() {
               <input
                 type="text"
                 value={formData.referralCode}
-                onChange={(e) => setFormData({ ...formData, referralCode: e.target.value })}
-                className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition"
+                onChange={(e) => setField('referralCode', e.target.value)}
+                className={inputCls(false)}
                 placeholder="รหัสจากผู้แนะนำ"
               />
             </div>
 
             {/* Submit */}
-            <button 
-              type="submit" 
-              disabled={loading} 
+            <button
+              type="submit"
+              disabled={loading}
               className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-lg transition"
             >
               {loading ? "กำลังดำเนินการ..." : "สมัครสมาชิก"}
