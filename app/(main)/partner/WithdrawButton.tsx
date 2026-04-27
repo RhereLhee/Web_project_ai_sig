@@ -18,6 +18,9 @@ interface WithdrawButtonProps {
   }
   userPhone?: string | null
   lockedPhone?: string | null
+  /** Minimum withdrawal amount in baht. Server is the source of truth — this is
+   *  just the client-side validation message + button-disable threshold. */
+  minWithdrawBaht: number
 }
 
 type Step = 'form' | 'recaptcha' | 'otp' | 'confirm' | 'success'
@@ -32,7 +35,7 @@ const BANKS = [
   { code: 'BAY', name: 'กรุงศรี' },
 ]
 
-export function WithdrawButton({ balance, bankInfo, userPhone, lockedPhone }: WithdrawButtonProps) {
+export function WithdrawButton({ balance, bankInfo, userPhone, lockedPhone, minWithdrawBaht }: WithdrawButtonProps) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>('form')
@@ -57,7 +60,7 @@ export function WithdrawButton({ balance, bankInfo, userPhone, lockedPhone }: Wi
   const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null)
 
   const maxAmount = balance / 100
-  const canWithdraw = maxAmount >= 100
+  const canWithdraw = maxAmount >= minWithdrawBaht
 
   const phoneToUse = lockedPhone || phone
   const isPhoneLocked = !!lockedPhone
@@ -173,8 +176,8 @@ export function WithdrawButton({ balance, bankInfo, userPhone, lockedPhone }: Wi
       setError('กรุณาระบุจำนวนเงิน')
       return
     }
-    if (amountNum < 100) {
-      setError('ถอนขั้นต่ำ 100 บาท')
+    if (amountNum < minWithdrawBaht) {
+      setError(`ถอนขั้นต่ำ ${minWithdrawBaht.toLocaleString()} บาท`)
       return
     }
     if (amountNum > maxAmount) {
@@ -354,7 +357,7 @@ export function WithdrawButton({ balance, bankInfo, userPhone, lockedPhone }: Wi
   if (!canWithdraw) {
     return (
       <button disabled className="w-full py-3 bg-gray-300 text-gray-500 rounded-lg font-medium cursor-not-allowed">
-        ถอนขั้นต่ำ ฿100
+        ถอนขั้นต่ำ ฿{minWithdrawBaht.toLocaleString()}
       </button>
     )
   }

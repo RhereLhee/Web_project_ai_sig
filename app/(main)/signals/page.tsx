@@ -1,38 +1,28 @@
 // app/(main)/signals/page.tsx
 //
+// Locked config (after pricing decision):
+//   VIP_PRICE_SATANG = 49900 (฿499)  — single tier, fetched from SystemSetting
+//                                       so admin can adjust without redeploy
+//   AFFILIATE_POOL_PERCENT = 30      — per-order, computed at approve time
+//   COMMISSION_SCOPE = first payment only (renewals do not pay commission)
+//
 // Flow:
 //   - hasSignalAccess()        → full SignalRoomWithProvider (6 pairs, sound, PiP)
 //   - !hasSignal & ?free=1     → FreeSignalRoom (FREE PLAN: EU+UJ, 20:00-21:00, 10/day)
-//   - !hasSignal (default)     → packages + a "ดูฟรี" CTA that links to ?free=1
-//
-// The old auto-Free-Trial that granted price=0 SignalSubscription has been removed —
-// it was leaking full Signal Room access to anyone who signed up. Free viewing now
-// strictly goes through the gated FreeSignalRoom.
+//   - !hasSignal (default)     → VIP package + a "ดูฟรี" CTA that links to ?free=1
 import Link from "next/link"
 import { getUserWithSubscription, hasSignalAccess } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { SignalRoomWithProvider } from "@/components/SignalRoomWithProvider"
 import { FreeSignalRoom } from "@/components/FreeSignalRoom"
 import { SignalPackages } from "./SignalPackages"
-import { prisma } from "@/lib/prisma"
+import { getVipPriceSatang } from "@/lib/system-settings"
 import {
   FREE_DAILY_LIMIT,
   FREE_PAIR_DISPLAY,
   FREE_WINDOW_END_HOUR,
   FREE_WINDOW_START_HOUR,
 } from "@/lib/free-window"
-
-// ============================================
-// SIGNAL PLAN CONFIG
-// ============================================
-export const SIGNAL_PLANS = [
-  { months: 1, price: 2500, bonus: 0 },
-  { months: 3, price: 6999, bonus: 1 },
-  { months: 6, price: 12999, bonus: 2 },
-  { months: 9, price: 19999, bonus: 3 },
-]
-
-export const REFERRAL_DISCOUNT = 300
 
 interface Props {
   searchParams: Promise<{ free?: string }>
@@ -44,16 +34,12 @@ export default async function SignalsPage({ searchParams }: Props) {
 
   const hasSignal = hasSignalAccess(user)
 
-  // ----------------------------------------------------------------
-  // 1) Paid users → full Signal Room (unchanged)
-  // ----------------------------------------------------------------
+  // 1) Paid users → full Signal Room
   if (hasSignal) {
     return <SignalRoomWithProvider user={user as any} />
   }
 
-  // ----------------------------------------------------------------
   // 2) Free-mode opt-in via ?free=1
-  // ----------------------------------------------------------------
   const params = await searchParams
   if (params.free === '1') {
     return (
@@ -74,24 +60,18 @@ export default async function SignalsPage({ searchParams }: Props) {
     )
   }
 
-  // ----------------------------------------------------------------
-  // 3) Default for non-paying users → packages + free CTA
-  // ----------------------------------------------------------------
-  const fullUser = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { referredById: true },
-  })
-  const hasReferral = !!fullUser?.referredById
+  // 3) Default for non-paying users → VIP package + free CTA
+  const vipPriceSatang = await getVipPriceSatang()
+  const vipPriceBaht = vipPriceSatang / 100
 
   const startStr = String(FREE_WINDOW_START_HOUR).padStart(2, '0')
   const endStr = String(FREE_WINDOW_END_HOUR).padStart(2, '0')
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="bg-white rounded-xl shadow-sm p-4 md:p-6">
         <h1 className="text-lg md:text-xl font-bold text-gray-900">Signal Room</h1>
-        <p className="text-sm text-gray-500 mt-1">เลือกแพ็กเกจเพื่อเข้าถึงสัญญาณเทรด AI</p>
+        <p className="text-sm text-gray-500 mt-1">เลือกแบบเข้าถึงสัญญาณเทรด AI</p>
       </div>
 
       {/* Free CTA — opt-in entry to FreeSignalRoom */}
@@ -123,17 +103,13 @@ export default async function SignalsPage({ searchParams }: Props) {
         </div>
       </Link>
 
-      {/* Paid packages */}
+      {/* VIP package — single tier */}
       <div className="bg-white rounded-xl shadow-sm p-4 md:p-6">
-        <h2 className="font-semibold text-gray-900 mb-1">ปลดล็อกแบบเต็ม</h2>
+        <h2 className="font-semibold text-gray-900 mb-1">VIP — ปลดล็อกแบบเต็ม</h2>
         <p className="text-sm text-gray-500 mb-4">
-          ดู 6 คู่เงินตลอดเวลา ไม่มีจำกัด พร้อมเสียงแจ้งเตือนและ Picture-in-Picture
+          ดู 6 คู่เงินตลอดเวลา ไม่มีจำกัดสัญญาณ พร้อมเสียงแจ้งเตือนและ Picture-in-Picture
         </p>
-        <SignalPackages
-          plans={SIGNAL_PLANS}
-          hasReferral={hasReferral}
-          referralDiscount={REFERRAL_DISCOUNT}
-        />
+        <SignalPackages vipPriceBaht={vipPriceBaht} />
       </div>
 
       {/* FAQ */}
@@ -147,10 +123,9 @@ export default async function SignalsPage({ searchParams }: Props) {
             </p>
           </div>
           <div>
-            <h3 className="font-medium text-gray-900">Signal คืออะไร?</h3>
+            <h3 className="font-medium text-gray-900">VIP ราคาเท่าไหร่ ใช้ได้นานแค่ไหน?</h3>
             <p className="text-sm text-gray-500 mt-1">
-              Signal คือสัญญาณเทรดที่ AI วิเคราะห์จากข้อมูลตลาดแบบ Real-time
-              บอกจุด Entry และทิศทางที่ควรเทรด
+              ฿{vipPriceBaht.toLocaleString()}/เดือน · ปลดล็อก 6 คู่เงิน · เสียงแจ้งเตือน · Picture-in-Picture · ใช้ได้ทุกเวลา
             </p>
           </div>
           <div>

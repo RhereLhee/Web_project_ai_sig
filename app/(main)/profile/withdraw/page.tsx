@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import { getUserAffiliateBalance, getUserLifetimeEarnings } from "@/lib/affiliate"
+import { getMinWithdrawSatang } from "@/lib/system-settings"
 import { WithdrawForm } from "./WithdrawForm"
 
 async function getWithdrawStats(userId: string) {
@@ -31,7 +32,9 @@ export default async function WithdrawPage() {
 
   const stats = await getWithdrawStats(user.id)
   const availableBalance = stats.available / 100 // สตางค์ → บาท
-  const minWithdraw = 350
+  // Min withdraw is configurable via SystemSetting (default 30000 satang = ฿300).
+  const minWithdrawSatang = await getMinWithdrawSatang()
+  const minWithdraw = minWithdrawSatang / 100
 
   // Bank info presence check (no gate by subscription anymore).
   const hasBankInfo = !!(user.partner?.bankName && user.partner?.accountNumber && user.partner?.accountName)
