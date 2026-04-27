@@ -56,20 +56,26 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 3. Check existing user
-    const existingUser = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { email: normalizedEmail },
-          { phone: formattedPhone },
-        ],
-      },
+    // 3. Check existing user — แยกข้อความให้ผู้ใช้รู้ว่าซ้ำที่ field ไหน
+    const existingByEmail = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: { id: true },
     })
-
-    if (existingUser) {
+    if (existingByEmail) {
       return NextResponse.json(
-        { error: 'ข้อมูลนี้ถูกใช้งานแล้ว กรุณาใช้ข้อมูลอื่น' },
-        { status: 400 }
+        { error: 'อีเมลนี้ถูกใช้งานแล้ว กรุณาใช้อีเมลอื่นหรือเข้าสู่ระบบ', field: 'email' },
+        { status: 409 }
+      )
+    }
+
+    const existingByPhone = await prisma.user.findFirst({
+      where: { phone: formattedPhone },
+      select: { id: true },
+    })
+    if (existingByPhone) {
+      return NextResponse.json(
+        { error: 'เบอร์โทรนี้ถูกใช้งานแล้ว กรุณาใช้เบอร์อื่น', field: 'phone' },
+        { status: 409 }
       )
     }
 

@@ -2,10 +2,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { sendEmailOTP, generateEmailOTP } from '@/lib/email'
+import { formatPhoneNumber } from '@/lib/sms'
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, type = 'VERIFY' } = await req.json()
+    const { email, phone, type = 'VERIFY' } = await req.json()
 
     // 1. Validate email
     if (!email || !email.includes('@')) {
@@ -16,6 +17,34 @@ export async function POST(req: NextRequest) {
     }
 
     const normalizedEmail = email.toLowerCase()
+
+    // 1.5 ถ้าเป็น REGISTER — เช็ค email/phone ซ้ำก่อนส่ง OTP จะได้บอกผู้ใช้ทันทีว่าอันไหนซ้ำ
+    if (type === 'REGISTER') {
+      const emailTaken = await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+        select: { id: true },
+      })
+      if (emailTaken) {
+        return NextResponse.json(
+          { error: 'อีเมลนี้ถูกใช้งานแล้ว กรุณาใช้อีเมลอื่นหรือเข้าสู่ระบบ', field: 'email' },
+          { status: 409 }
+        )
+      }
+
+      if (phone) {
+        const formattedPhone = formatPhoneNumber(phone)
+        const phoneTaken = await prisma.user.findFirst({
+          where: { phone: formattedPhone },
+          select: { id: true },
+        })
+        if (phoneTaken) {
+          return NextResponse.json(
+            { error: 'เบอร์โทรนี้ถูกใช้งานแล้ว กรุณาใช้เบอร์อื่น', field: 'phone' },
+            { status: 409 }
+          )
+        }
+      }
+    }
 
     // 2. Rate limit (5 per hour)
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
