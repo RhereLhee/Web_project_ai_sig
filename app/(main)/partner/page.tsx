@@ -6,6 +6,7 @@ import Link from "next/link"
 import { getCurrentUser } from "@/lib/jwt"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
+import { getMinWithdrawSatang } from "@/lib/system-settings"
 import { CopyButton } from "./CopyButton"
 import { WithdrawButton } from "./WithdrawButton"
 import { BankInfoForm } from "./BankInfoForm"
@@ -159,11 +160,13 @@ export default async function PartnerPage() {
   // --------------------------------------------
   // Bank info present → full dashboard
   // --------------------------------------------
-  const [stats, team, withdrawals] = await Promise.all([
+  const [stats, team, withdrawals, minWithdrawSatang] = await Promise.all([
     getAffiliateStats(userData.id),
     getTeam(userData.id),
     getWithdrawalHistory(userData.id),
+    getMinWithdrawSatang(),
   ])
+  const minWithdrawBaht = minWithdrawSatang / 100
 
   const pendingWithdrawal = withdrawals.find(w => w.status === 'PENDING' || w.status === 'APPROVED')
 
@@ -226,6 +229,7 @@ export default async function PartnerPage() {
             }}
             userPhone={userData.phone}
             lockedPhone={partner!.withdrawPhone}
+            minWithdrawBaht={minWithdrawBaht}
           />
         </div>
       </div>
@@ -348,7 +352,7 @@ export default async function PartnerPage() {
         <div className="text-sm text-gray-600 space-y-2">
           <p>• ผลตอบแทนคำนวณจากการใช้งานจริงของผู้ใช้บริการที่ถูกแนะนำ</p>
           <p>• ยอดคงเหลือไม่มีวันหมดอายุและจะไม่ถูกยึด</p>
-          <p>• ถอนขั้นต่ำ ฿100 ดำเนินการภายใน 1-3 วันทำการ</p>
+          <p>• ถอนขั้นต่ำ ฿{minWithdrawBaht.toLocaleString()} ดำเนินการภายใน 1-3 วันทำการ</p>
           <p>• 1 เบอร์โทร = 1 บัญชี (ล็อคอัตโนมัติเมื่อถอนเงินครั้งแรก)</p>
         </div>
         <a

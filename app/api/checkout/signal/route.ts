@@ -1,42 +1,32 @@
 // app/api/checkout/signal/route.ts
+//
+// Locked pricing model:
+//   - Single VIP tier @ VIP_PRICE_SATANG (default 49900 = ฿499) for 1 month
+//   - Price is fetched from SystemSetting via getVipPriceSatang() so admin can
+//     adjust without redeploy. Server is the source of truth — clients NEVER
+//     pass price; they only request "create me a VIP order".
+//   - Affiliate pool computed at approve time (30% of finalAmount).
+//   - First-payment flag drives commission scope (renewals do not pay commission).
 import { NextRequest, NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/jwt"
 import { prisma } from "@/lib/prisma"
 import { generatePayload, generateQRCode, PROMPTPAY_CONFIG } from "@/lib/promptpay"
 import { validateCSRF } from "@/lib/csrf"
 import { buildOrderPaymentFields, isFirstPaymentForBuyer } from "@/lib/order-helpers"
+import { getVipPriceSatang } from "@/lib/system-settings"
+import { logger } from "@/lib/logger"
+import { PaymentMethod } from "@prisma/client"
 
-// ============================================
-// SIGNAL PLAN CONFIG - ราคาใหม่
-// ============================================
-const SIGNAL_CONFIG = {
-  plans: [
-    { months: 1, price: 2500, bonus: 0 },    // 2,500 บาท ใช้ได้ 1 เดือน
-    { months: 3, price: 6999, bonus: 1 },    // 6,999 บาท ใช้ได้ 4 เดือน (+1 ฟรี)
-    { months: 6, price: 12999, bonus: 2 },   // 12,999 บาท ใช้ได้ 8 เดือน (+2 ฟรี)
-    { months: 9, price: 19999, bonus: 3 },   // 19,999 บาท ใช้ได้ 12 เดือน (+3 ฟรี)
-  ],
-  // ส่วนลดเมื่อมีรหัสแนะนำ (optional)
-  referralDiscount: 300,
-}
+/** Months of access granted per VIP order. Single tier, 1 month. */
+const VIP_DURATION_MONTHS = 1
+const VIP_BONUS_MONTHS = 0
 
-// Export สำหรับใช้ที่อื่น
-export { SIGNAL_CONFIG }
-
-function getSignalPlan(months: number) {
-  return SIGNAL_CONFIG.plans.find(p => p.months === months)
-}
-
-function validateSignalPlan(months: number, price: number, hasReferral: boolean = false) {
-  const planConfig = getSignalPlan(months)
-  if (!planConfig) return false
-  
-  let expectedPrice = planConfig.price
-  if (hasReferral) {
-    expectedPrice -= SIGNAL_CONFIG.referralDiscount
+const VALID_PAYMENT_METHODS: PaymentMethod[] = ["QR_CODE", "BANK_APP", "CREDIT_CARD"]
+function coercePaymentMethod(input: unknown): PaymentMethod {
+  if (typeof input === "string" && (VALID_PAYMENT_METHODS as readonly string[]).includes(input)) {
+    return input as PaymentMethod
   }
-  
-  return price === expectedPrice
+  return "QR_CODE"
 }
 
 export async function POST(request: NextRequest) {
@@ -50,84 +40,63 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const body = await request.json()
-    const { paymentMethod, months } = body
-
-    // Validate
-    if (!months) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
-    }
-
-    const planConfig = getSignalPlan(months)
-    if (!planConfig) {
-      return NextResponse.json({ error: "Invalid plan" }, { status: 400 })
-    }
+    const body = await request.json().catch(() => ({}))
+    const paymentMethod = coercePaymentMethod(body?.paymentMethod)
 
     const user = await prisma.user.findUnique({
       where: { id: payload.userId },
-      select: {
-        id: true,
-        referredById: true,
-      },
+      select: { id: true, referredById: true },
     })
-
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    // คำนวณราคา
-    let finalPrice = planConfig.price
-    const hasReferral = !!user.referredById
-    
-    // ถ้ามีคนแนะนำ ลดราคา (optional - ถ้าไม่ต้องการลดราคา comment บรรทัดนี้)
-    if (hasReferral) {
-      finalPrice -= SIGNAL_CONFIG.referralDiscount
+    // Server-side price (never trust client).
+    const finalAmountSatang = await getVipPriceSatang()
+    if (!Number.isInteger(finalAmountSatang) || finalAmountSatang <= 0) {
+      return NextResponse.json({ error: "ราคา VIP ไม่ถูกต้อง" }, { status: 500 })
     }
 
-    // Generate order number (crypto secure)
-    const { randomBytes } = require('crypto')
-    const orderNumber = `SIG-${Date.now()}-${randomBytes(4).toString('hex').toUpperCase()}`
+    // Order number — Date.now() + crypto bytes is collision-safe enough for our scale.
+    const { randomBytes } = await import("crypto")
+    const orderNumber = `SIG-${Date.now()}-${randomBytes(4).toString("hex").toUpperCase()}`
 
-    // Convert to satang
-    const finalAmount = finalPrice * 100
-
-    // Build order with unique-amount suffix + first-payment flag in one tx
     const { order, expectedAmountBaht } = await prisma.$transaction(async (tx) => {
-      const payFields = await buildOrderPaymentFields(tx, finalAmount)
+      const payFields = await buildOrderPaymentFields(tx, finalAmountSatang)
       const firstPayment = await isFirstPaymentForBuyer(tx, user.id)
 
-      // Generate QR with EXPECTED amount (base + suffix) so bank transfer matches exactly
       const expectedBaht = payFields.expectedAmountSatang / 100
       let qrCodeData: string | null = null
       try {
         const qrPayload = generatePayload(PROMPTPAY_CONFIG.id, { amount: expectedBaht })
         qrCodeData = await generateQRCode(qrPayload)
       } catch (err) {
-        console.error("QR generation error:", err)
+        logger.error("QR generation error", { context: "payment", error: err })
       }
 
       const created = await tx.order.create({
         data: {
           orderNumber,
           userId: user.id,
-          orderType: 'SIGNAL',
-          originalAmount: planConfig.price * 100,
-          discountAmount: hasReferral ? SIGNAL_CONFIG.referralDiscount * 100 : 0,
-          // affiliatePool is now computed dynamically at approve time (30% of finalAmount)
+          orderType: "SIGNAL",
+          originalAmount: finalAmountSatang,
+          discountAmount: 0,
+          // Affiliate pool is computed dynamically at approve time (30% of finalAmount).
           affiliatePool: 0,
-          finalAmount,
+          finalAmount: finalAmountSatang,
           expectedAmountSatang: payFields.expectedAmountSatang,
           amountSuffix: payFields.amountSuffix,
           expiresAt: payFields.expiresAt,
           isFirstPayment: firstPayment,
-          status: 'PENDING',
-          paymentMethod: paymentMethod || 'QR_CODE',
+          status: "PENDING",
+          paymentMethod,
           qrCodeData,
           metadata: {
-            months: planConfig.months,
-            bonus: planConfig.bonus,
-            totalMonths: planConfig.months + planConfig.bonus,
-            hasReferral,
+            tier: "VIP",
+            months: VIP_DURATION_MONTHS,
+            bonus: VIP_BONUS_MONTHS,
+            totalMonths: VIP_DURATION_MONTHS + VIP_BONUS_MONTHS,
+            hasReferral: !!user.referredById,
           },
         },
       })
@@ -138,38 +107,41 @@ export async function POST(request: NextRequest) {
       success: true,
       orderNumber: order.orderNumber,
       orderId: order.id,
-      finalAmount: order.expectedAmountSatang, // EXACT amount with suffix
+      // EXACT expected amount (with the 1..99 satang suffix). Client must show this.
+      finalAmount: order.expectedAmountSatang,
       finalPrice: expectedAmountBaht,
       amountSuffix: order.amountSuffix,
       expiresAt: order.expiresAt,
       qrCodeData: order.qrCodeData,
-      paymentMethod: paymentMethod || 'QR_CODE',
+      paymentMethod,
       promptPayId: PROMPTPAY_CONFIG.id,
       promptPayName: PROMPTPAY_CONFIG.name,
       plan: {
-        months: planConfig.months,
-        bonus: planConfig.bonus,
-        totalMonths: planConfig.months + planConfig.bonus,
-        price: planConfig.price,
+        tier: "VIP",
+        months: VIP_DURATION_MONTHS,
+        bonus: VIP_BONUS_MONTHS,
+        totalMonths: VIP_DURATION_MONTHS + VIP_BONUS_MONTHS,
+        priceSatang: finalAmountSatang,
+        priceBaht: finalAmountSatang / 100,
       },
     })
-
   } catch (error) {
-    const { logger } = require('@/lib/logger')
-    logger.error('Signal checkout failed', { context: 'payment', error })
+    logger.error("Signal checkout failed", { context: "payment", error })
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
-// GET - ดึงราคาแพ็คเกจทั้งหมด
+// GET — public price endpoint (used by misc UI surfaces that need the current VIP price).
 export async function GET() {
+  const priceSatang = await getVipPriceSatang()
   return NextResponse.json({
-    plans: SIGNAL_CONFIG.plans.map(p => ({
-      months: p.months,
-      price: p.price,
-      bonus: p.bonus,
-      totalMonths: p.months + p.bonus,
-    })),
-    referralDiscount: SIGNAL_CONFIG.referralDiscount,
+    plan: {
+      tier: "VIP",
+      months: VIP_DURATION_MONTHS,
+      bonus: VIP_BONUS_MONTHS,
+      totalMonths: VIP_DURATION_MONTHS + VIP_BONUS_MONTHS,
+      priceSatang,
+      priceBaht: priceSatang / 100,
+    },
   })
 }
