@@ -73,9 +73,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'ไฟล์ใหญ่เกินไป (สูงสุด 5MB)' }, { status: 400 })
     }
 
-    const order = await prisma.order.findFirst({
-      where: { orderNumber, userId: payload.userId },
-    })
+    const [order, user] = await Promise.all([
+      prisma.order.findFirst({ where: { orderNumber, userId: payload.userId } }),
+      prisma.user.findUnique({
+        where: { id: payload.userId },
+        select: { name: true, email: true, phone: true },
+      }),
+    ])
     if (!order) {
       return NextResponse.json({ error: 'ไม่พบออเดอร์นี้' }, { status: 404 })
     }
@@ -248,6 +252,9 @@ export async function POST(request: NextRequest) {
         adminEmail,
         orderNumber,
         userId: payload.userId,
+        userName: user?.name ?? null,
+        userEmail: user?.email ?? null,
+        userPhone: user?.phone ?? null,
         slipUrl,
         verificationStatus: verification.status,
         amountSatang: verification.parsed.amountSatang ?? null,

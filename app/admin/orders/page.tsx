@@ -7,6 +7,11 @@
 //   - BankTransaction link — shows if SlipOK matched a bank credit to this order
 //   - Expiry badge — PENDING orders past expiresAt are stale
 //   - First-payment flag — affects whether affiliate distribution will fire
+
+// Always re-fetch from DB — order state changes frequently (slip uploads, approvals).
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 import { prisma } from '@/lib/prisma'
 import Link from 'next/link'
 import { ApproveOrderButton } from './ApproveOrderButton'

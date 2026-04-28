@@ -272,6 +272,9 @@ export async function sendSlipSubmittedAlert(data: {
   adminEmail: string
   orderNumber: string
   userId: string
+  userName?: string | null
+  userEmail?: string | null
+  userPhone?: string | null
   slipUrl: string
   verificationStatus: string
   amountSatang?: number | null
@@ -287,6 +290,14 @@ export async function sendSlipSubmittedAlert(data: {
         ? '❌ REJECTED (SlipOK ปฏิเสธ แต่ Admin ยังตรวจสอบได้)'
         : '⏳ PENDING (SlipOK ไม่ตอบ — Admin ต้องตรวจสอบเอง)'
 
+  // Format phone display (66xxxxxxxx → 0xxxxxxxx)
+  const displayPhone = (() => {
+    const p = data.userPhone || ''
+    if (p.startsWith('66')) return '0' + p.slice(2)
+    if (p.startsWith('+66')) return '0' + p.slice(3)
+    return p || '-'
+  })()
+
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background: #059669; padding: 20px; text-align: center;">
@@ -295,33 +306,47 @@ export async function sendSlipSubmittedAlert(data: {
       <div style="padding: 24px; background: #f9fafb; border: 1px solid #e5e7eb;">
         <table style="width: 100%; border-collapse: collapse;">
           <tr>
-            <td style="padding: 8px 0; color: #6b7280; width: 140px;">Order Number:</td>
+            <td style="padding: 8px 0; color: #6b7280; width: 140px; vertical-align: top;">Order Number:</td>
             <td style="padding: 8px 0; font-weight: bold; font-family: monospace;">${data.orderNumber}</td>
           </tr>
-          <tr>
-            <td style="padding: 8px 0; color: #6b7280;">User ID:</td>
-            <td style="padding: 8px 0; font-family: monospace;">${data.userId}</td>
+          <tr style="border-top: 1px solid #e5e7eb;">
+            <td colspan="2" style="padding: 12px 0 4px; color: #374151; font-weight: 600;">ข้อมูลลูกค้า</td>
           </tr>
           <tr>
-            <td style="padding: 8px 0; color: #6b7280;">สถานะสลิป:</td>
-            <td style="padding: 8px 0;">${statusLabel}</td>
+            <td style="padding: 6px 0; color: #6b7280;">ชื่อ:</td>
+            <td style="padding: 6px 0; font-weight: bold;">${data.userName || '-'}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #6b7280;">อีเมล:</td>
+            <td style="padding: 6px 0;">${data.userEmail || '-'}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #6b7280;">เบอร์โทร:</td>
+            <td style="padding: 6px 0; font-family: monospace;">${displayPhone}</td>
+          </tr>
+          <tr style="border-top: 1px solid #e5e7eb;">
+            <td colspan="2" style="padding: 12px 0 4px; color: #374151; font-weight: 600;">ข้อมูลสลิป</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #6b7280;">สถานะ:</td>
+            <td style="padding: 6px 0;">${statusLabel}</td>
           </tr>
           ${data.amountSatang != null ? `
           <tr>
-            <td style="padding: 8px 0; color: #6b7280;">ยอดในสลิป:</td>
-            <td style="padding: 8px 0; font-weight: bold;">฿${(data.amountSatang / 100).toFixed(2)}</td>
+            <td style="padding: 6px 0; color: #6b7280;">ยอดในสลิป:</td>
+            <td style="padding: 6px 0; font-weight: bold; color: #059669;">฿${(data.amountSatang / 100).toFixed(2)}</td>
           </tr>
           ` : ''}
           ${data.senderName ? `
           <tr>
-            <td style="padding: 8px 0; color: #6b7280;">ชื่อผู้โอน:</td>
-            <td style="padding: 8px 0;">${data.senderName}</td>
+            <td style="padding: 6px 0; color: #6b7280;">ชื่อผู้โอน:</td>
+            <td style="padding: 6px 0;">${data.senderName}</td>
           </tr>
           ` : ''}
           ${data.senderBank ? `
           <tr>
-            <td style="padding: 8px 0; color: #6b7280;">ธนาคารผู้โอน:</td>
-            <td style="padding: 8px 0;">${data.senderBank}</td>
+            <td style="padding: 6px 0; color: #6b7280;">ธนาคารผู้โอน:</td>
+            <td style="padding: 6px 0;">${data.senderBank}</td>
           </tr>
           ` : ''}
         </table>

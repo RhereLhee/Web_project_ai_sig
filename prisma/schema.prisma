@@ -972,6 +972,7 @@ model SlipVerification {
   updatedAt     DateTime               @updatedAt
 
   @@index([orderId])
+  @@index([orderId, createdAt]) // covers ORDER BY createdAt DESC LIMIT 1 per orderId
   @@index([userId])
   @@index([status])
   @@index([providerRef])
