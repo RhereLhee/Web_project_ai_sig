@@ -61,14 +61,12 @@ export default async function DashboardPage() {
           <ForwardTestStats />
         </div>
 
-        {/* Right - Telegram Feed */}
-        <div className="lg:col-span-1">
+        {/* Right column - Telegram Feed + Top Affiliate */}
+        <div className="lg:col-span-1 flex flex-col gap-6">
           <TelegramFeed />
+          <TopAffiliates currentUserId={user.id} />
         </div>
       </div>
-
-      {/* Top Affiliate */}
-      <TopAffiliates />
     </div>
   )
 }

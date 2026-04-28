@@ -41,14 +41,18 @@ function formatBaht(satang: number) {
 }
 
 const RANK_COLORS = [
-  'bg-yellow-400 text-yellow-900',   // 1st
-  'bg-gray-300 text-gray-800',       // 2nd
-  'bg-amber-600 text-amber-100',     // 3rd
-  'bg-gray-100 text-gray-600',       // 4th+
+  'bg-yellow-400 text-yellow-900',
+  'bg-gray-300 text-gray-800',
+  'bg-amber-600 text-amber-100',
+  'bg-gray-100 text-gray-600',
   'bg-gray-100 text-gray-600',
 ]
 
-export async function TopAffiliates() {
+interface TopAffiliatesProps {
+  currentUserId?: string
+}
+
+export async function TopAffiliates({ currentUserId }: TopAffiliatesProps) {
   const affiliates = await getTopAffiliates(5)
 
   return (
@@ -68,13 +72,14 @@ export async function TopAffiliates() {
       ) : (
         <div className="space-y-3">
           {affiliates.map((a) => {
-            const name = a.user?.name || 'ไม่ระบุชื่อ'
-            const initial = name.charAt(0)
+            const isMe = a.userId === currentUserId
+            const name = isMe ? 'คุณ' : (a.user?.name || 'ไม่ระบุชื่อ')
+            const initial = (a.user?.name || 'U').charAt(0)
             const colorClass = RANK_COLORS[Math.min(a.rank - 1, RANK_COLORS.length - 1)]
             const teamCount = a.user?._count.referrals ?? 0
 
             return (
-              <div key={a.userId} className="flex items-center space-x-3">
+              <div key={a.userId} className={`flex items-center space-x-3 ${isMe ? 'bg-emerald-50 -mx-2 px-2 py-1 rounded-lg' : ''}`}>
                 {/* Rank */}
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${colorClass}`}>
                   {a.rank}
@@ -91,7 +96,10 @@ export async function TopAffiliates() {
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 truncate">{name}</p>
+                  <p className="text-sm font-semibold text-gray-900 truncate">
+                    {name}
+                    {isMe && <span className="ml-1 text-xs text-emerald-600 font-normal">(คุณ)</span>}
+                  </p>
                   <p className="text-xs text-gray-500">ทีม {teamCount} คน</p>
                 </div>
 

@@ -18,7 +18,6 @@ async function getTopAffiliates(limit: number = 50) {
     select: {
       id: true,
       name: true,
-      phone: true,
       image: true,
       _count: { select: { referrals: true } },
     },
@@ -39,13 +38,6 @@ function formatBaht(satang: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })
-}
-
-function formatPhone(phone: string | null | undefined) {
-  if (!phone) return '-'
-  if (phone.startsWith('66')) return '0' + phone.slice(2)
-  if (phone.startsWith('+66')) return '0' + phone.slice(3)
-  return phone
 }
 
 const RANK_COLORS = [
@@ -78,7 +70,6 @@ export default async function TopAffiliatesPage() {
             const rankColorClass =
               a.rank <= 3 ? RANK_COLORS[a.rank - 1] : 'bg-gray-100 text-gray-600'
             const teamCount = a.user?._count.referrals ?? 0
-            const phone = formatPhone(a.user?.phone)
 
             return (
               <div
@@ -108,12 +99,7 @@ export default async function TopAffiliatesPage() {
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-gray-900">{name}</p>
-                  <p className="text-sm text-gray-500">
-                    ทีม {teamCount} คน
-                    {a.user?.phone && (
-                      <span className="ml-3 font-mono text-xs">{phone}</span>
-                    )}
-                  </p>
+                  <p className="text-sm text-gray-500">ทีม {teamCount} คน</p>
                 </div>
 
                 {/* Earnings */}
