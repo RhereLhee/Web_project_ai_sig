@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
         },
       })
       return { order: created, expectedAmountBaht: expectedBaht }
-    }, { timeout: 15_000 })
+    }, { timeout: 15_000, maxWait: 10_000 })
 
     // Generate QR code OUTSIDE the transaction so it never races the 5-second
     // Prisma transaction timeout. The order is already committed at this point.
