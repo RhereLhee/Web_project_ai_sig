@@ -164,7 +164,7 @@ export async function verifySlip(input: SlipVerifyInput): Promise<SlipVerifyResu
   }
 
   const apiKey = process.env.EASYSLIP_API_KEY!
-  const url = 'https://app.slip2go.com/api/verify-slip/qr-image/info'
+  const url = 'https://api.slip2go.com/api/customer-backoffice/verify-slip/qr-image/info'
 
   try {
     const form = new FormData()
