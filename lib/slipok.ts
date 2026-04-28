@@ -1,21 +1,20 @@
 // lib/slipok.ts
-// SlipOK integration — OCR + bank verification for Thai transfer slips.
-// https://slipok.com (docs: https://developer.slipok.com/)
+// EasySlip integration — OCR + bank verification for Thai transfer slips.
+// https://developer.easyslip.app
 //
 // Design goals:
-//   - NEVER block the upload flow. If SlipOK is unreachable / misconfigured / returns an error,
+//   - NEVER block the upload flow. If EasySlip is unreachable / misconfigured / returns an error,
 //     we still store the slip and let an admin approve manually. The SlipVerification row
 //     captures the outcome so the admin UI can surface it.
-//   - Enforce slip-reuse prevention via fileSha256 UNIQUE (DB) BEFORE calling SlipOK.
+//   - Enforce slip-reuse prevention via fileSha256 UNIQUE (DB) BEFORE calling EasySlip.
 //   - Enforce provider-transRef uniqueness via providerRef UNIQUE (DB) — protects against
 //     the same slip being submitted against a different order.
 //   - Store the raw provider response so disputes can be replayed.
 //
 // Env:
-//   SLIPOK_ENABLED          — "true" to call the API; otherwise returns MANUAL
-//   SLIPOK_API_URL          — full URL including branch, e.g. https://api.slipok.com/api/line/apikey/<BRANCH_ID>
-//   SLIPOK_API_KEY          — branch-specific x-authorization header
-//   SLIPOK_EXPECTED_RECEIVER — (optional) account-number substring to verify receiver matches us
+//   EASYSLIP_ENABLED          — "true" to call the API; otherwise returns MANUAL
+//   EASYSLIP_API_KEY          — API Secret from EasySlip dashboard
+//   EASYSLIP_EXPECTED_RECEIVER — (optional) account-number substring to verify receiver matches us
 
 import crypto from 'crypto'
 
@@ -24,7 +23,7 @@ export type SlipVerifyStatus = 'VERIFIED' | 'REJECTED' | 'PENDING' | 'MANUAL'
 export interface SlipVerifyInput {
   fileBuffer: Buffer
   fileMime: string
-  expectedAmountSatang: number // finalAmount + amountSuffix — must match EXACTLY
+  expectedAmountSatang: number
 }
 
 export interface SlipVerifyParsed {
@@ -42,7 +41,7 @@ export interface SlipVerifyParsed {
 export interface SlipVerifyResult {
   status: SlipVerifyStatus
   errorMessage?: string | null
-  provider: 'slipok' | 'manual'
+  provider: 'easyslip' | 'manual'
   fileSha256: string
   parsed: SlipVerifyParsed
   rawResponse?: unknown
@@ -54,56 +53,101 @@ export function sha256(buf: Buffer): string {
 
 function isEnabled(): boolean {
   return (
-    process.env.SLIPOK_ENABLED === 'true' &&
-    !!process.env.SLIPOK_API_URL &&
-    !!process.env.SLIPOK_API_KEY
+    process.env.EASYSLIP_ENABLED === 'true' &&
+    !!process.env.EASYSLIP_API_KEY
   )
 }
 
 /**
- * Parse the SlipOK `data` object into our schema shape.
- * SlipOK returns amount as a number in baht with 2 decimals — convert to satang integer.
+ * EasySlip response shape (simplified):
+ * {
+ *   status: 200,
+ *   data: {
+ *     transRef: string,
+ *     date: string (ISO),
+ *     amount: { amount: number, local: { amount: number, currency: "THB" } },
+ *     sender: {
+ *       bank: { id, name, short },
+ *       account: { name: { th, en }, bank?: { type, account }, promptpay?: { type, account } }
+ *     },
+ *     receiver: {
+ *       bank: { id, name, short },
+ *       account: { name: { th, en }, bank?: { type, account }, promptpay?: { type, account } }
+ *     }
+ *   }
+ * }
  */
-function parseSlipOkData(raw: unknown): SlipVerifyParsed {
-  const data = (raw as { data?: Record<string, unknown> } | null)?.data
+interface EasySlipBank {
+  id?: string
+  name?: string
+  short?: string
+}
+interface EasySlipAccountDetail {
+  type?: string
+  account?: string
+}
+interface EasySlipParty {
+  bank?: EasySlipBank
+  account?: {
+    name?: { th?: string; en?: string }
+    bank?: EasySlipAccountDetail
+    promptpay?: EasySlipAccountDetail
+  }
+}
+interface EasySlipData {
+  transRef?: string
+  date?: string
+  amount?: { amount?: number; local?: { amount?: number; currency?: string } }
+  sender?: EasySlipParty
+  receiver?: EasySlipParty
+}
+interface EasySlipResponse {
+  status?: number
+  message?: string
+  data?: EasySlipData
+}
+
+function parseEasySlipData(raw: unknown): SlipVerifyParsed {
+  const res = raw as EasySlipResponse | null
+  const data = res?.data
   if (!data) return {}
 
-  // Amount: baht as number (e.g. 199.25) → satang integer (19925).
-  const amountBaht = typeof data.amount === 'number' ? data.amount : Number(data.amount)
-  const amountSatang = Number.isFinite(amountBaht) ? Math.round(amountBaht * 100) : null
+  // Amount in baht (e.g. 599.00) → satang integer (59900)
+  const amountBaht = data.amount?.local?.amount ?? data.amount?.amount
+  const amountSatang =
+    typeof amountBaht === 'number' && Number.isFinite(amountBaht)
+      ? Math.round(amountBaht * 100)
+      : null
 
-  // transTimestamp is ISO; fall back to transDate + transTime concat.
   let transferAt: Date | null = null
-  if (typeof data.transTimestamp === 'string') {
-    const d = new Date(data.transTimestamp)
-    transferAt = isNaN(d.getTime()) ? null : d
-  } else if (typeof data.transDate === 'string') {
-    const dt = typeof data.transTime === 'string'
-      ? `${data.transDate}T${data.transTime}`
-      : data.transDate
-    const d = new Date(dt)
+  if (typeof data.date === 'string') {
+    const d = new Date(data.date)
     transferAt = isNaN(d.getTime()) ? null : d
   }
 
-  const sender = (data.sender as Record<string, unknown> | undefined) || {}
-  const receiver = (data.receiver as Record<string, unknown> | undefined) || {}
+  const sender = data.sender
+  const receiver = data.receiver
+
+  const senderAccount =
+    sender?.account?.bank?.account ?? sender?.account?.promptpay?.account ?? null
+  const receiverAccount =
+    receiver?.account?.bank?.account ?? receiver?.account?.promptpay?.account ?? null
 
   return {
     amountSatang,
-    senderBank: (sender.bank as string) || (sender.bankShortName as string) || null,
-    senderName: (sender.name as string) || (sender.displayName as string) || null,
-    senderAccount: (sender.account as string) || (sender.accountNumber as string) || null,
-    receiverBank: (receiver.bank as string) || (receiver.bankShortName as string) || null,
-    receiverName: (receiver.name as string) || (receiver.displayName as string) || null,
-    receiverAccount:
-      (receiver.account as string) || (receiver.accountNumber as string) || null,
+    senderBank: sender?.bank?.short ?? sender?.bank?.name ?? null,
+    senderName: sender?.account?.name?.th ?? sender?.account?.name?.en ?? null,
+    senderAccount,
+    receiverBank: receiver?.bank?.short ?? receiver?.bank?.name ?? null,
+    receiverName: receiver?.account?.name?.th ?? receiver?.account?.name?.en ?? null,
+    receiverAccount,
     transferAt,
-    providerRef: (data.transRef as string) || (data.transactionId as string) || null,
+    providerRef: data.transRef ?? null,
   }
 }
 
 /**
- * Call SlipOK with the uploaded file. Never throws on API failures — returns
+ * Call EasySlip with the uploaded file. Never throws on API failures — returns
  * MANUAL status so admin can fall back to eyeball review.
  */
 export async function verifySlip(input: SlipVerifyInput): Promise<SlipVerifyResult> {
@@ -112,23 +156,20 @@ export async function verifySlip(input: SlipVerifyInput): Promise<SlipVerifyResu
   if (!isEnabled()) {
     return {
       status: 'MANUAL',
-      errorMessage: 'SlipOK disabled — falling back to manual review',
+      errorMessage: 'EasySlip disabled — falling back to manual review',
       provider: 'manual',
       fileSha256,
       parsed: {},
     }
   }
 
-  const url = process.env.SLIPOK_API_URL!
-  const apiKey = process.env.SLIPOK_API_KEY!
+  const apiKey = process.env.EASYSLIP_API_KEY!
+  const url = 'https://developer.easyslip.app/api/v1/verify'
 
   try {
     const form = new FormData()
-    // SlipOK accepts the file under field name `files` (v2) or `file` — use `files`.
     const blob = new Blob([new Uint8Array(input.fileBuffer)], { type: input.fileMime })
-    form.append('files', blob, 'slip')
-    form.append('amount', (input.expectedAmountSatang / 100).toFixed(2))
-    form.append('log', 'true')
+    form.append('file', blob, 'slip')
 
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 15_000)
@@ -136,7 +177,7 @@ export async function verifySlip(input: SlipVerifyInput): Promise<SlipVerifyResu
     try {
       res = await fetch(url, {
         method: 'POST',
-        headers: { 'x-authorization': apiKey },
+        headers: { Authorization: apiKey },
         body: form,
         signal: controller.signal,
       })
@@ -145,26 +186,23 @@ export async function verifySlip(input: SlipVerifyInput): Promise<SlipVerifyResu
     }
 
     const json: unknown = await res.json().catch(() => null)
+    const easyRes = json as EasySlipResponse | null
 
-    if (!res.ok) {
-      // SlipOK error shape: { success: false, code: number, message: string }
-      const msg =
-        (json as { message?: string } | null)?.message ||
-        `SlipOK HTTP ${res.status}`
+    if (!res.ok || (easyRes?.status && easyRes.status !== 200)) {
+      const msg = easyRes?.message ?? `EasySlip HTTP ${res.status}`
       return {
         status: 'REJECTED',
         errorMessage: msg,
-        provider: 'slipok',
+        provider: 'easyslip',
         fileSha256,
         parsed: {},
         rawResponse: json,
       }
     }
 
-    const parsed = parseSlipOkData(json)
+    const parsed = parseEasySlipData(json)
 
-    // Amount match check — MUST be exact-satang. Anything else is REJECTED and
-    // forces admin review (don't auto-approve mismatched amounts).
+    // Amount must match exactly (satang).
     if (
       parsed.amountSatang == null ||
       parsed.amountSatang !== input.expectedAmountSatang
@@ -175,19 +213,18 @@ export async function verifySlip(input: SlipVerifyInput): Promise<SlipVerifyResu
           parsed.amountSatang == null
             ? 'ไม่สามารถอ่านยอดจากสลิปได้'
             : `ยอดในสลิปไม่ตรง (ได้ ฿${(parsed.amountSatang / 100).toFixed(2)} · ต้องการ ฿${(input.expectedAmountSatang / 100).toFixed(2)})`,
-        provider: 'slipok',
+        provider: 'easyslip',
         fileSha256,
         parsed,
         rawResponse: json,
       }
     }
 
-    // Receiver check (optional, configured via env)
-    const expectedReceiver = process.env.SLIPOK_EXPECTED_RECEIVER
+    // Receiver check (optional)
+    const expectedReceiver = process.env.EASYSLIP_EXPECTED_RECEIVER
     if (expectedReceiver && parsed.receiverAccount) {
       const normalizedReceiver = parsed.receiverAccount.replace(/[^0-9Xx*]/g, '')
       const normalizedExpected = expectedReceiver.replace(/[^0-9]/g, '')
-      // SlipOK masks account numbers with 'x' — compare visible digits only.
       const visibleMatch = normalizedReceiver
         .split('')
         .every((ch, i) => {
@@ -198,7 +235,7 @@ export async function verifySlip(input: SlipVerifyInput): Promise<SlipVerifyResu
         return {
           status: 'REJECTED',
           errorMessage: `บัญชีผู้รับไม่ตรง (สลิป: ${parsed.receiverAccount})`,
-          provider: 'slipok',
+          provider: 'easyslip',
           fileSha256,
           parsed,
           rawResponse: json,
@@ -209,16 +246,15 @@ export async function verifySlip(input: SlipVerifyInput): Promise<SlipVerifyResu
     return {
       status: 'VERIFIED',
       errorMessage: null,
-      provider: 'slipok',
+      provider: 'easyslip',
       fileSha256,
       parsed,
       rawResponse: json,
     }
   } catch (e) {
-    // Network/timeout — don't block the upload. Admin can still approve by hand.
     return {
       status: 'MANUAL',
-      errorMessage: `SlipOK call failed — manual review required: ${e instanceof Error ? e.message : String(e)}`,
+      errorMessage: `EasySlip call failed — manual review required: ${e instanceof Error ? e.message : String(e)}`,
       provider: 'manual',
       fileSha256,
       parsed: {},
