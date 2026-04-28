@@ -78,8 +78,62 @@ export default async function AdminUsersPage({ searchParams }: Props) {
         </form>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-lg border overflow-hidden">
+      {/* Mobile card list */}
+      <div className="md:hidden space-y-2">
+        {users.length === 0 && (
+          <p className="text-center text-gray-500 py-8 bg-white rounded-lg border">ไม่พบสมาชิก</p>
+        )}
+        {users.map((user) => {
+          const hasPartner = user.partner?.status === 'ACTIVE'
+          const hasSignal = user.signalSubscriptions.length > 0
+          return (
+            <Link
+              key={user.id}
+              href={`/admin/users/${user.id}`}
+              className="block bg-white rounded-lg border p-3 hover:shadow-sm transition-shadow"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-sm truncate">{user.name || '-'}</p>
+                  <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                </div>
+                <span className={`text-xs px-2 py-0.5 rounded flex-shrink-0 ${
+                  user.role === 'ADMIN' ? 'bg-red-100 text-red-700' :
+                  user.role === 'PARTNER' ? 'bg-purple-100 text-purple-700' :
+                  'bg-gray-100 text-gray-600'
+                }`}>
+                  {user.role}
+                </span>
+              </div>
+              <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                <span>ทีม {user._count.referrals}</span>
+                <span>ออเดอร์ {user._count.orders}</span>
+                <span>{new Date(user.createdAt).toLocaleDateString('th-TH')}</span>
+                <div className="flex gap-1 ml-auto">
+                  {hasPartner && <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">P</span>}
+                  {hasSignal && <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">S</span>}
+                </div>
+              </div>
+            </Link>
+          )
+        })}
+        {pages > 1 && (
+          <div className="flex justify-center gap-2 pt-2">
+            {Array.from({ length: Math.min(pages, 10) }, (_, i) => i + 1).map((p) => (
+              <Link
+                key={p}
+                href={`/admin/users?page=${p}&role=${params.role || ''}&search=${params.search || ''}`}
+                className={`px-3 py-1 rounded text-sm ${p === page ? 'bg-gray-900 text-white' : 'bg-white border hover:bg-gray-50'}`}
+              >
+                {p}
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block bg-white rounded-lg border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
@@ -97,7 +151,6 @@ export default async function AdminUsersPage({ searchParams }: Props) {
               {users.map((user) => {
                 const hasPartner = user.partner?.status === 'ACTIVE'
                 const hasSignal = user.signalSubscriptions.length > 0
-                
                 return (
                   <tr key={user.id} className="hover:bg-gray-50">
                     <td className="p-3">
@@ -115,27 +168,16 @@ export default async function AdminUsersPage({ searchParams }: Props) {
                     </td>
                     <td className="p-3">
                       <div className="flex flex-wrap gap-1">
-                        {hasPartner && (
-                          <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">Partner</span>
-                        )}
-                        {hasSignal && (
-                          <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">Signal</span>
-                        )}
-                        {!hasPartner && !hasSignal && (
-                          <span className="text-gray-400 text-xs">Free</span>
-                        )}
+                        {hasPartner && <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">Partner</span>}
+                        {hasSignal && <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">Signal</span>}
+                        {!hasPartner && !hasSignal && <span className="text-gray-400 text-xs">Free</span>}
                       </div>
                     </td>
                     <td className="p-3">{user._count.referrals}</td>
                     <td className="p-3">{user._count.orders}</td>
-                    <td className="p-3 text-gray-500">
-                      {new Date(user.createdAt).toLocaleDateString('th-TH')}
-                    </td>
+                    <td className="p-3 text-gray-500">{new Date(user.createdAt).toLocaleDateString('th-TH')}</td>
                     <td className="p-3">
-                      <Link 
-                        href={`/admin/users/${user.id}`} 
-                        className="text-emerald-600 hover:underline text-sm"
-                      >
+                      <Link href={`/admin/users/${user.id}`} className="text-emerald-600 hover:underline text-sm">
                         ดูรายละเอียด
                       </Link>
                     </td>
@@ -150,7 +192,6 @@ export default async function AdminUsersPage({ searchParams }: Props) {
           <p className="text-center text-gray-500 py-8">ไม่พบสมาชิก</p>
         )}
 
-        {/* Pagination */}
         {pages > 1 && (
           <div className="flex justify-center gap-2 p-4 border-t">
             {Array.from({ length: Math.min(pages, 10) }, (_, i) => i + 1).map((p) => (

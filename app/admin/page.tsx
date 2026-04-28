@@ -118,7 +118,7 @@ export default async function AdminDashboard() {
       </div>
 
       {/* Quick Actions */}
-      <div className="grid md:grid-cols-6 gap-3">
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
         <Link href="/admin/users" className="bg-white p-4 rounded-lg border hover:shadow-md transition-shadow text-center">
           <span className="text-2xl"></span>
           <p className="text-sm font-medium mt-1">สมาชิก</p>
@@ -162,12 +162,12 @@ export default async function AdminDashboard() {
               <p className="text-gray-500 text-sm text-center py-4">ไม่มีรายการรอ</p>
             ) : (
               pendingWithdrawals.map((w) => (
-                <div key={w.id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                  <div>
-                    <p className="font-medium text-sm">{w.user.name || w.user.email}</p>
-                    <p className="text-xs text-gray-500">{w.accountName}</p>
+                <div key={w.id} className="flex justify-between items-center gap-2 p-2 bg-gray-50 rounded">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-sm truncate">{w.user.name || w.user.email}</p>
+                    <p className="text-xs text-gray-500 truncate">{w.accountName}</p>
                   </div>
-                  <p className="font-medium text-emerald-600">฿{(w.amount / 100).toLocaleString()}</p>
+                  <p className="font-medium text-emerald-600 flex-shrink-0">฿{(w.amount / 100).toLocaleString()}</p>
                 </div>
               ))
             )}
@@ -182,13 +182,13 @@ export default async function AdminDashboard() {
           </div>
           <div className="space-y-2">
             {recentUsers.map((user) => (
-              <div key={user.id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                <div>
-                  <p className="font-medium text-sm">{user.name || 'ไม่ระบุ'}</p>
-                  <p className="text-xs text-gray-500">{user.email}</p>
+              <div key={user.id} className="flex justify-between items-center gap-2 p-2 bg-gray-50 rounded">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-sm truncate">{user.name || 'ไม่ระบุ'}</p>
+                  <p className="text-xs text-gray-500 truncate">{user.email}</p>
                 </div>
-                <span className={`text-xs px-2 py-0.5 rounded ${
-                  user.role === 'ADMIN' ? 'bg-red-100 text-red-700' : 
+                <span className={`text-xs px-2 py-0.5 rounded flex-shrink-0 ${
+                  user.role === 'ADMIN' ? 'bg-red-100 text-red-700' :
                   user.role === 'PARTNER' ? 'bg-purple-100 text-purple-700' :
                   'bg-gray-100 text-gray-600'
                 }`}>
@@ -207,12 +207,12 @@ export default async function AdminDashboard() {
           </div>
           <div className="space-y-2">
             {recentOrders.map((order) => (
-              <div key={order.id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                <div>
-                  <p className="font-medium text-sm">{order.user.name || order.user.email}</p>
+              <div key={order.id} className="flex justify-between items-center gap-2 p-2 bg-gray-50 rounded">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-sm truncate">{order.user.name || order.user.email}</p>
                   <p className="text-xs text-gray-500">{order.orderType}</p>
                 </div>
-                <div className="text-right">
+                <div className="text-right flex-shrink-0">
                   <p className="font-medium text-sm">฿{(order.finalAmount / 100).toLocaleString()}</p>
                   <span className={`text-xs ${order.status === 'PAID' ? 'text-emerald-600' : 'text-yellow-600'}`}>
                     {order.status}
