@@ -177,7 +177,7 @@ export async function verifySlip(input: SlipVerifyInput): Promise<SlipVerifyResu
     try {
       res = await fetch(url, {
         method: 'POST',
-        headers: { Authorization: apiKey },
+        headers: { Authorization: `Bearer ${apiKey}` },
         body: form,
         signal: controller.signal,
       })
