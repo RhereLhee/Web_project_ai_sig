@@ -14,7 +14,10 @@ async function getTopAffiliates(limit: number = 5) {
 
   const userIds = rows.map((r) => r.userId)
   const users = await prisma.user.findMany({
-    where: { id: { in: userIds } },
+    where: {
+      id: { in: userIds },
+      NOT: { email: { endsWith: '@deleted.invalid' } },
+    },
     select: {
       id: true,
       name: true,
@@ -25,12 +28,14 @@ async function getTopAffiliates(limit: number = 5) {
 
   const userMap = Object.fromEntries(users.map((u) => [u.id, u]))
 
-  return rows.map((r, i) => ({
-    rank: i + 1,
-    userId: r.userId,
-    totalSatang: r._sum.amount ?? 0,
-    user: userMap[r.userId] ?? null,
-  }))
+  return rows
+    .map((r) => ({
+      userId: r.userId,
+      totalSatang: r._sum.amount ?? 0,
+      user: userMap[r.userId] ?? null,
+    }))
+    .filter((a) => a.user !== null)
+    .map((a, i) => ({ ...a, rank: i + 1 }))
 }
 
 function formatBaht(satang: number) {
