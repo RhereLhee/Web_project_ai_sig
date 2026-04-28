@@ -11,6 +11,7 @@ interface SidebarProps {
     name: string | null
     email: string | null
     role: string
+    image?: string | null
   }
   hasPartner: boolean
   hasSignal: boolean
@@ -125,12 +126,18 @@ export function Sidebar({ user, hasPartner, hasSignal }: SidebarProps) {
           }`}
         >
           <div className="flex items-center space-x-3 mb-3">
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0 ${
-              isAdmin 
-                ? 'bg-gradient-to-br from-red-500 to-orange-600' 
-                : 'bg-gradient-to-br from-emerald-500 to-cyan-600'
+            <div className={`w-10 h-10 rounded-full flex-shrink-0 overflow-hidden ${
+              user.image ? '' : `flex items-center justify-center text-white font-bold ${
+                isAdmin
+                  ? 'bg-gradient-to-br from-red-500 to-orange-600'
+                  : 'bg-gradient-to-br from-emerald-500 to-cyan-600'
+              }`
             }`}>
-              {user.name?.charAt(0) || user.email?.charAt(0) || "U"}
+              {user.image ? (
+                <img src={user.image} alt="avatar" className="w-full h-full object-cover" />
+              ) : (
+                user.name?.charAt(0) || user.email?.charAt(0) || "U"
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-semibold truncate text-sm md:text-base">{user.name || "User"}</p>

@@ -5,6 +5,7 @@ import Link from "next/link"
 import { getYouTubeEmbedUrl } from "@/lib/config"
 import { TelegramFeed } from "@/components/TelegramFeed"
 import { ForwardTestStats } from "./ForwardTestStats"
+import { TopAffiliates } from "./TopAffiliates"
 
 export default async function DashboardPage() {
   const user = await getUserWithSubscription()
@@ -65,6 +66,9 @@ export default async function DashboardPage() {
           <TelegramFeed />
         </div>
       </div>
+
+      {/* Top Affiliate */}
+      <TopAffiliates />
     </div>
   )
 }

@@ -124,7 +124,6 @@ export default async function UserDetailPage({ params }: Props) {
             <h2 className="text-xl font-bold">{user.name || 'ไม่ระบุชื่อ'}</h2>
             <p className="text-gray-500">{user.email}</p>
             {user.phone && <p className="text-sm text-gray-400 font-mono">{user.phone}</p>}
-            <p className="text-xs text-gray-400 mt-1 font-mono">ID: {user.id}</p>
           </div>
           <span
             className={`px-3 py-1 rounded-full text-sm font-medium ${

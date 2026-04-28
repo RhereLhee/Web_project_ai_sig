@@ -4,6 +4,7 @@ import { redirect } from "next/navigation"
 import Link from "next/link"
 import { prisma } from "@/lib/prisma"
 import { ProfileActions } from "./ProfileActions"
+import { AvatarUpload } from "@/components/AvatarUpload"
 
 function formatPhoneDisplay(phone: string | null): string {
   if (!phone) return "-"
@@ -20,6 +21,7 @@ async function getFullUserProfile(userId: string) {
       name: true,
       email: true,
       phone: true,
+      image: true,
       role: true,
       referralCode: true,
       referredById: true,
@@ -73,17 +75,13 @@ export default async function ProfilePage() {
   const isPhoneLocked = !!user.partner?.withdrawPhone
   const displayPhone = formatPhoneDisplay(user.phone)
 
-  const initial = user.name?.charAt(0) || user.email?.charAt(0) || "U"
-
   return (
     <div className="max-w-3xl mx-auto space-y-6">
 
       {/* ── Avatar + name header ── */}
       <div className="bg-white rounded-xl shadow-sm p-6">
         <div className="flex items-center gap-5">
-          <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-cyan-600 rounded-full flex items-center justify-center text-white text-2xl font-bold flex-shrink-0 uppercase">
-            {initial}
-          </div>
+          <AvatarUpload currentImage={user.image} userName={user.name} userEmail={user.email} />
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold text-gray-900 truncate">{user.name || "User"}</h1>
             <p className="text-sm text-gray-500 truncate">{user.email}</p>

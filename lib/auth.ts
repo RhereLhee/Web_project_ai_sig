@@ -7,6 +7,7 @@ export type UserWithSub = {
   id: string
   email: string | null
   name: string | null
+  image: string | null
   role: UserRole
   referralCode: string
   partner: {
@@ -32,6 +33,7 @@ export async function getUserWithSubscription(): Promise<UserWithSub | null> {
       id: true,
       email: true,
       name: true,
+      image: true,
       role: true,
       referralCode: true,
       // Partner (เดิมคือ Subscription)
@@ -63,6 +65,7 @@ export async function getUserWithSubscription(): Promise<UserWithSub | null> {
     id: user.id,
     email: user.email,
     name: user.name,
+    image: user.image,
     role: user.role,
     referralCode: user.referralCode,
     partner: user.partner || null,
