@@ -23,12 +23,52 @@ interface HealthCheck {
   checks: Record<string, string>
 }
 
+function ErrorModal({ text, onClose }: { text: string; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[80vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b">
+          <span className="font-semibold text-gray-900">Error Detail</span>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="overflow-y-auto p-5">
+          <pre className="text-xs text-red-700 font-mono whitespace-pre-wrap break-all bg-red-50 p-4 rounded-lg">
+            {text}
+          </pre>
+        </div>
+        <div className="px-5 py-3 border-t flex justify-end">
+          <button
+            onClick={() => navigator.clipboard?.writeText(text)}
+            className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-lg mr-2"
+          >
+            Copy
+          </button>
+          <button onClick={onClose} className="px-4 py-1.5 bg-gray-900 text-white text-sm rounded-lg">
+            ปิด
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function AdminLogsPage() {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [stats, setStats] = useState<LogStats | null>(null)
   const [health, setHealth] = useState<HealthCheck | null>(null)
   const [filter, setFilter] = useState({ level: '', context: '' })
   const [loading, setLoading] = useState(true)
+  const [expandedError, setExpandedError] = useState<string | null>(null)
 
   const fetchLogs = useCallback(async () => {
     try {
@@ -68,7 +108,6 @@ export default function AdminLogsPage() {
     fetchHealth()
   }, [fetchLogs, fetchHealth])
 
-  // Auto-refresh ทุก 30 วินาที
   useEffect(() => {
     const interval = setInterval(() => {
       fetchLogs()
@@ -86,6 +125,10 @@ export default function AdminLogsPage() {
 
   return (
     <div>
+      {expandedError && (
+        <ErrorModal text={expandedError} onClose={() => setExpandedError(null)} />
+      )}
+
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-900">System Logs</h1>
         <button
@@ -203,9 +246,21 @@ export default function AdminLogsPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-600">{log.context || '-'}</td>
-                  <td className="px-4 py-3">{log.message}</td>
-                  <td className="px-4 py-3 text-red-600 text-xs font-mono max-w-xs truncate">
-                    {log.errorMessage || '-'}
+                  <td className="px-4 py-3 max-w-xs">
+                    <span className="block truncate" title={log.message}>{log.message}</span>
+                  </td>
+                  <td className="px-4 py-3 max-w-xs">
+                    {log.errorMessage ? (
+                      <button
+                        onClick={() => setExpandedError(log.errorMessage!)}
+                        className="text-left text-red-600 text-xs font-mono truncate block max-w-[200px] hover:text-red-800 hover:underline cursor-pointer"
+                        title="คลิกเพื่อดูข้อความเต็ม"
+                      >
+                        {log.errorMessage.substring(0, 80)}{log.errorMessage.length > 80 ? '…' : ''}
+                      </button>
+                    ) : (
+                      <span className="text-gray-400">-</span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -220,7 +275,7 @@ export default function AdminLogsPage() {
         <div className="space-y-4 text-sm text-gray-700">
           <div>
             <h3 className="font-semibold text-gray-900">1. Email Alert (ตั้งค่าแล้ว)</h3>
-            <p>Error/Fatal ทุกตัวจะส่งแจ้งเตือนไปที่ Email ที่ตั้งค่าไว้ใน ALERT_EMAIL (.env) โดยอัตโนมัติ (throttled 5 นาที/context)</p>
+            <p>Error/Fatal จะส่งแจ้งเตือนไปที่ ALERT_EMAIL อัตโนมัติ (throttled 5 นาที/context) — ถ้า error เดิมซ้ำหลายครั้งจะแสดงจำนวนครั้งในอีเมลเดียว</p>
           </div>
           <div>
             <h3 className="font-semibold text-gray-900">2. UptimeRobot (แนะนำ - ฟรี)</h3>
@@ -228,11 +283,10 @@ export default function AdminLogsPage() {
             <code className="block bg-gray-900 text-green-400 p-3 rounded mt-2">
               {typeof window !== 'undefined' ? window.location.origin : 'https://your-domain.com'}/api/health
             </code>
-            <p className="mt-2">ตั้งค่า Alert Contact เป็น Telegram/LINE/Email จะได้รับแจ้งเตือนทันทีเมื่อเว็บล่ม</p>
           </div>
           <div>
             <h3 className="font-semibold text-gray-900">3. Render Health Check (ถ้าใช้ Render)</h3>
-            <p>ไปที่ Render Dashboard &gt; Service &gt; Settings &gt; Health Check Path ใส่: <span className="font-mono bg-gray-200 px-1 rounded">/api/health</span></p>
+            <p>Render Dashboard &gt; Service &gt; Settings &gt; Health Check Path: <span className="font-mono bg-gray-200 px-1 rounded">/api/health</span></p>
           </div>
         </div>
       </div>

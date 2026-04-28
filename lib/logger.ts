@@ -82,18 +82,43 @@ class LogStore {
 export const logStore = new LogStore()
 
 // ============================================
-// THROTTLE — ป้องกันส่ง email ถี่เกินไป
-// ส่งได้สูงสุด 1 ฉบับ ต่อ 5 นาที (ต่อ context)
+// THROTTLE + DEDUPLICATION
+// 1 email per 5 min per (context+message) key
+// Counts occurrences during the cooldown window
 // ============================================
-const emailCooldowns = new Map<string, number>()
-const EMAIL_COOLDOWN_MS = 5 * 60 * 1000 // 5 นาที
+const EMAIL_COOLDOWN_MS = 5 * 60 * 1000
 
-function shouldSendEmail(context: string): boolean {
-  const key = context || 'system'
-  const lastSent = emailCooldowns.get(key) || 0
-  if (Date.now() - lastSent < EMAIL_COOLDOWN_MS) return false
-  emailCooldowns.set(key, Date.now())
-  return true
+interface CooldownEntry {
+  lastSent: number
+  pendingCount: number   // how many times this error fired since last email
+}
+
+const emailCooldowns = new Map<string, CooldownEntry>()
+
+function getCooldownKey(context: string, message: string): string {
+  // Group by context + first 80 chars of message (same error type)
+  return `${context || 'system'}::${message.substring(0, 80)}`
+}
+
+/**
+ * Returns { shouldSend: true, count } when cooldown expired (time to send email).
+ * Returns { shouldSend: false } and increments counter when still in cooldown.
+ */
+function checkCooldown(context: string, message: string): { shouldSend: boolean; count: number } {
+  const key = getCooldownKey(context, message)
+  const entry = emailCooldowns.get(key)
+  const now = Date.now()
+
+  if (!entry || now - entry.lastSent >= EMAIL_COOLDOWN_MS) {
+    // Cooldown expired or first occurrence — send email
+    const count = entry ? entry.pendingCount + 1 : 1
+    emailCooldowns.set(key, { lastSent: now, pendingCount: 0 })
+    return { shouldSend: true, count }
+  }
+
+  // Still in cooldown — increment counter, don't send
+  entry.pendingCount += 1
+  return { shouldSend: false, count: 0 }
 }
 
 // ============================================
@@ -101,16 +126,16 @@ function shouldSendEmail(context: string): boolean {
 // ============================================
 
 class Logger {
-  private formatError(error: unknown): string {
-    if (error instanceof Error) {
-      return `${error.message}\n${error.stack || ''}`
-    }
-    return String(error)
-  }
-
   private getErrorMessage(error: unknown): string {
     if (error instanceof Error) return error.message
     return String(error)
+  }
+
+  /** Concise one-liner: first 300 chars of error.message, no stack trace */
+  private truncateError(error: unknown, maxLen = 300): string {
+    const msg = this.getErrorMessage(error)
+    if (msg.length <= maxLen) return msg
+    return msg.substring(0, maxLen) + '…'
   }
 
   private log(entry: LogEntry): void {
@@ -132,13 +157,15 @@ class Logger {
         console.warn(msg, entry.metadata ? JSON.stringify(entry.metadata) : '')
         break
       case 'error':
-      case 'fatal':
-        console.error(msg, entry.error ? this.formatError(entry.error) : '', entry.metadata ? JSON.stringify(entry.metadata) : '')
-        // แจ้ง Email ทันที เมื่อมี error/fatal (throttled)
-        if (shouldSendEmail(entry.context || 'system')) {
-          this.notifyEmail(entry).catch(() => {})
+      case 'fatal': {
+        console.error(msg, entry.errorMessage || '', entry.metadata ? JSON.stringify(entry.metadata) : '')
+        // แจ้ง Email ทันที (throttled + deduplicated)
+        const { shouldSend, count } = checkCooldown(entry.context || 'system', entry.message)
+        if (shouldSend) {
+          this.notifyEmail(entry, count).catch(() => {})
         }
         break
+      }
     }
   }
 
@@ -159,15 +186,13 @@ class Logger {
   }
 
   /**
-   * แจ้ง Email ทันที — ส่งไปยัง ALERT_EMAIL ที่ตั้งค่าไว้ใน .env
-   * ถ้าเว็บล่ม / payment error / withdrawal error จะได้รู้ทันที
-   * Throttled: ส่งได้ 1 ฉบับต่อ context ทุก 5 นาที (ป้องกัน spam)
+   * ส่ง Email แจ้งเตือน — กระชับ, ไม่ throw stack trace
+   * count = จำนวนครั้งที่เกิด error เดียวกันในช่วง cooldown ที่ผ่านมา
    */
-  private async notifyEmail(entry: LogEntry): Promise<void> {
+  private async notifyEmail(entry: LogEntry, count: number): Promise<void> {
     const alertEmail = process.env.ALERT_EMAIL
     if (!alertEmail) return
 
-    // ใช้ SMTP ตรง ๆ ไม่พึ่ง lib/email.ts (ป้องกัน circular dependency)
     const host = process.env.SMTP_HOST
     const port = parseInt(process.env.SMTP_PORT || '587')
     const user = process.env.SMTP_USER
@@ -176,56 +201,61 @@ class Logger {
 
     if (!host || !user || !pass) return
 
-    const emoji = entry.level === 'fatal' ? '' : ''
+    const emoji = entry.level === 'fatal' ? '🔴' : '🟡'
     const appName = process.env.NEXT_PUBLIC_SITE_NAME || 'TechTrade'
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
 
-    const subject = `${emoji} [${appName}] ${entry.level.toUpperCase()} — ${entry.context || 'system'}: ${entry.message.substring(0, 80)}`
+    const countLabel = count > 1 ? ` (${count}x)` : ''
+    const subject = `${emoji} [${appName}] ${entry.context || 'system'}: ${entry.message.substring(0, 60)}${countLabel}`
+
+    // Concise error — first 300 chars only, no stack trace
+    const shortError = entry.error ? this.truncateError(entry.error, 300) : null
 
     const html = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: ${entry.level === 'fatal' ? '#dc2626' : '#f59e0b'}; padding: 20px; text-align: center;">
-          <h2 style="color: white; margin: 0;">${emoji} ${appName} — ${entry.level.toUpperCase()}</h2>
+      <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; font-size: 14px;">
+        <div style="background: ${entry.level === 'fatal' ? '#dc2626' : '#f59e0b'}; padding: 14px 20px;">
+          <strong style="color: white; font-size: 16px;">${emoji} ${appName} — ${entry.level.toUpperCase()}${countLabel}</strong>
         </div>
-        <div style="padding: 24px; background: #f9fafb; border: 1px solid #e5e7eb;">
-          <table style="width: 100%; border-collapse: collapse;">
+        <div style="padding: 20px; background: #f9fafb; border: 1px solid #e5e7eb; border-top: none;">
+          <table style="width: 100%; border-collapse: collapse; line-height: 1.8;">
             <tr>
-              <td style="padding: 8px 0; color: #6b7280; width: 120px;">Context:</td>
-              <td style="padding: 8px 0; font-weight: bold;">${entry.context || 'system'}</td>
+              <td style="color: #6b7280; width: 110px; vertical-align: top;">Context</td>
+              <td style="font-weight: bold;">${entry.context || 'system'}</td>
             </tr>
             <tr>
-              <td style="padding: 8px 0; color: #6b7280;">Message:</td>
-              <td style="padding: 8px 0;">${entry.message}</td>
+              <td style="color: #6b7280; vertical-align: top;">Message</td>
+              <td>${entry.message}</td>
             </tr>
-            ${entry.errorMessage ? `
+            ${shortError ? `
             <tr>
-              <td style="padding: 8px 0; color: #6b7280;">Error:</td>
-              <td style="padding: 8px 0; color: #dc2626; font-family: monospace; font-size: 13px;">${entry.errorMessage}</td>
+              <td style="color: #6b7280; vertical-align: top;">Error</td>
+              <td style="color: #dc2626; font-family: monospace; font-size: 12px; word-break: break-word;">${shortError.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>
+            </tr>
+            ` : ''}
+            ${count > 1 ? `
+            <tr>
+              <td style="color: #6b7280; vertical-align: top;">ซ้ำ</td>
+              <td style="color: #f59e0b; font-weight: bold;">${count} ครั้งใน 5 นาทีที่ผ่านมา</td>
             </tr>
             ` : ''}
             ${entry.userId ? `
             <tr>
-              <td style="padding: 8px 0; color: #6b7280;">User ID:</td>
-              <td style="padding: 8px 0; font-family: monospace;">${entry.userId}</td>
+              <td style="color: #6b7280; vertical-align: top;">User</td>
+              <td style="font-family: monospace; font-size: 12px;">${entry.userId}</td>
             </tr>
             ` : ''}
             <tr>
-              <td style="padding: 8px 0; color: #6b7280;">Time:</td>
-              <td style="padding: 8px 0;">${new Date(entry.timestamp).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}</td>
+              <td style="color: #6b7280; vertical-align: top;">เวลา</td>
+              <td>${new Date(entry.timestamp).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}</td>
             </tr>
           </table>
           ${appUrl ? `
-          <div style="margin-top: 20px; text-align: center;">
-            <a href="${appUrl}/admin/logs" style="display: inline-block; padding: 10px 24px; background: #111827; color: white; text-decoration: none; border-radius: 6px;">
-              ดู Logs ทั้งหมด
+          <div style="margin-top: 16px;">
+            <a href="${appUrl}/admin/logs" style="display: inline-block; padding: 8px 20px; background: #111827; color: white; text-decoration: none; border-radius: 6px; font-size: 13px;">
+              ดู Logs เต็ม →
             </a>
           </div>
           ` : ''}
-        </div>
-        <div style="background: #111827; padding: 12px; text-align: center;">
-          <p style="color: #6b7280; font-size: 11px; margin: 0;">
-            แจ้งเตือนอัตโนมัติจาก ${appName} System Monitor
-          </p>
         </div>
       </div>
     `
