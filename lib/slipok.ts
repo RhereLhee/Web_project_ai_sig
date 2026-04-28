@@ -120,9 +120,14 @@ export async function verifySlip(input: SlipVerifyInput): Promise<SlipVerifyResu
   const apiKey = process.env.EASYSLIP_API_KEY!
 
   try {
+    const mimeToExt: Record<string, string> = {
+      'image/jpeg': 'jpg', 'image/png': 'png',
+      'image/webp': 'webp', 'image/heic': 'heic',
+    }
+    const ext = mimeToExt[input.fileMime] ?? 'jpg'
     const form = new FormData()
-    const blob = new Blob([new Uint8Array(input.fileBuffer)], { type: input.fileMime })
-    form.append('image', blob, 'slip')
+    const file = new File([input.fileBuffer], `slip.${ext}`, { type: input.fileMime })
+    form.append('image', file)
 
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 15_000)
