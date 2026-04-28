@@ -4,6 +4,7 @@ import { redirect } from "next/navigation"
 import Link from "next/link"
 import { prisma } from "@/lib/prisma"
 import { ProfileEditButton } from "@/components/ProfileEditButton"
+import { AvatarUpload } from "@/components/AvatarUpload"
 
 // ฟังก์ชันแปลงเบอร์โทรให้แสดงแบบไทย (0xxx)
 function formatPhoneDisplay(phone: string | null): string {
@@ -30,6 +31,7 @@ async function getFullUserProfile(userId: string) {
       name: true,
       email: true,
       phone: true,
+      image: true,
       role: true,
       referralCode: true,
       createdAt: true,
@@ -111,9 +113,7 @@ export default async function ProfilePage() {
       {/* Profile Card */}
       <div className="card">
         <div className="flex items-start space-x-6 mb-6">
-          <div className="w-20 h-20 bg-gradient-to-br from-emerald-500 to-cyan-600 rounded-full flex items-center justify-center text-white text-3xl font-bold flex-shrink-0">
-            {user.name?.charAt(0) || user.email?.charAt(0) || 'U'}
-          </div>
+          <AvatarUpload currentImage={user.image} userName={user.name} userEmail={user.email} />
           <div className="flex-1">
             <h2 className="text-2xl font-bold text-gray-900">{user.name || 'User'}</h2>
             <p className="text-gray-600 mb-1">{user.email}</p>

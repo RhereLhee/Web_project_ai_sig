@@ -31,10 +31,26 @@ async function getWithdrawals(status?: string, page: number = 1) {
   return { withdrawals, total, pages: Math.ceil(total / take) }
 }
 
+async function getSummary() {
+  const rows = await prisma.withdrawal.groupBy({
+    by: ['status'],
+    _sum: { amount: true },
+    _count: { _all: true },
+  })
+  const byStatus: Record<string, { sum: number; count: number }> = {}
+  for (const r of rows) {
+    byStatus[r.status] = { sum: r._sum.amount ?? 0, count: r._count._all }
+  }
+  return byStatus
+}
+
 export default async function AdminWithdrawalsPage({ searchParams }: Props) {
   const params = await searchParams
   const page = parseInt(params.page || '1')
-  const { withdrawals, total, pages } = await getWithdrawals(params.status, page)
+  const [{ withdrawals, total, pages }, summary] = await Promise.all([
+    getWithdrawals(params.status, page),
+    getSummary(),
+  ])
   const currentStatus = params.status || 'ALL'
 
   const statusColors: Record<string, string> = {
@@ -61,6 +77,22 @@ export default async function AdminWithdrawalsPage({ searchParams }: Props) {
         >
           ดาวน์โหลด CSV
         </a>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: 'รอตรวจสอบ', key: 'PENDING', color: 'text-yellow-600 bg-yellow-50 border-yellow-200' },
+          { label: 'อนุมัติแล้ว', key: 'APPROVED', color: 'text-blue-600 bg-blue-50 border-blue-200' },
+          { label: 'โอนแล้ว', key: 'PAID', color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
+          { label: 'ปฏิเสธ', key: 'REJECTED', color: 'text-red-600 bg-red-50 border-red-200' },
+        ].map(({ label, key, color }) => (
+          <div key={key} className={`p-3 rounded-lg border ${color}`}>
+            <p className="text-xs font-medium opacity-70">{label}</p>
+            <p className="text-lg font-bold">฿{((summary[key]?.sum ?? 0) / 100).toLocaleString()}</p>
+            <p className="text-xs opacity-70">{summary[key]?.count ?? 0} รายการ</p>
+          </div>
+        ))}
       </div>
 
       {/* Filters */}
