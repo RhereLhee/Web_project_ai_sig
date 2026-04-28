@@ -266,6 +266,83 @@ export async function sendWithdrawalPaidEmail(
 }
 
 /**
+ * แจ้งเจ้าของระบบเมื่อมีลูกค้าส่งสลิป (โดยเฉพาะ fallback PENDING/MANUAL)
+ */
+export async function sendSlipSubmittedAlert(data: {
+  adminEmail: string
+  orderNumber: string
+  userId: string
+  slipUrl: string
+  verificationStatus: string
+  amountSatang?: number | null
+  senderBank?: string | null
+  senderName?: string | null
+}): Promise<SendEmailResult> {
+  const appName = process.env.NEXT_PUBLIC_SITE_NAME || 'TechTrade'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
+  const statusLabel =
+    data.verificationStatus === 'VERIFIED'
+      ? '✅ VERIFIED (SlipOK ยืนยันแล้ว รอ Admin กด Approve)'
+      : data.verificationStatus === 'REJECTED'
+        ? '❌ REJECTED (SlipOK ปฏิเสธ แต่ Admin ยังตรวจสอบได้)'
+        : '⏳ PENDING (SlipOK ไม่ตอบ — Admin ต้องตรวจสอบเอง)'
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: #059669; padding: 20px; text-align: center;">
+        <h2 style="color: white; margin: 0;">${appName} — มีลูกค้าส่งสลิปใหม่</h2>
+      </div>
+      <div style="padding: 24px; background: #f9fafb; border: 1px solid #e5e7eb;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280; width: 140px;">Order Number:</td>
+            <td style="padding: 8px 0; font-weight: bold; font-family: monospace;">${data.orderNumber}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;">User ID:</td>
+            <td style="padding: 8px 0; font-family: monospace;">${data.userId}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;">สถานะสลิป:</td>
+            <td style="padding: 8px 0;">${statusLabel}</td>
+          </tr>
+          ${data.amountSatang != null ? `
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;">ยอดในสลิป:</td>
+            <td style="padding: 8px 0; font-weight: bold;">฿${(data.amountSatang / 100).toFixed(2)}</td>
+          </tr>
+          ` : ''}
+          ${data.senderName ? `
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;">ชื่อผู้โอน:</td>
+            <td style="padding: 8px 0;">${data.senderName}</td>
+          </tr>
+          ` : ''}
+          ${data.senderBank ? `
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;">ธนาคารผู้โอน:</td>
+            <td style="padding: 8px 0;">${data.senderBank}</td>
+          </tr>
+          ` : ''}
+        </table>
+        ${appUrl ? `
+        <div style="margin-top: 20px; text-align: center;">
+          <a href="${appUrl}/admin/orders" style="display: inline-block; padding: 10px 24px; background: #059669; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">
+            ไปที่หน้า Admin Orders
+          </a>
+        </div>
+        ` : ''}
+      </div>
+      <div style="background: #111827; padding: 12px; text-align: center;">
+        <p style="color: #6b7280; font-size: 11px; margin: 0;">แจ้งเตือนอัตโนมัติจาก ${appName} System Monitor</p>
+      </div>
+    </div>
+  `
+
+  return sendEmail(data.adminEmail, `[${appName}] สลิปใหม่ — ${data.orderNumber} (${data.verificationStatus})`, html)
+}
+
+/**
  * ส่ง Email แจ้งปฏิเสธคำขอถอนเงิน
  */
 export async function sendWithdrawalRejectedEmail(

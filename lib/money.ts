@@ -29,14 +29,14 @@ export const ORDER_PAYMENT_TTL_MS = 30 * 60 * 1000 // 30 minutes
 // ============================================
 
 export const MONEY_SETTING_KEYS = {
-  VIP_PRICE_SATANG: 'vip_price_satang', // 49900 = 499 THB
+  VIP_PRICE_SATANG: 'vip_price_satang', // 59900 = 599 THB
   AFFILIATE_POOL_PERCENT: 'affiliate_pool_percent', // 30 (= 30% of order)
   MIN_WITHDRAW_SATANG: 'min_withdraw_satang', // 30000 = 300 THB
   AFFILIATE_ENABLED: 'affiliate_enabled', // boolean
 } as const
 
 export const MONEY_DEFAULTS = {
-  [MONEY_SETTING_KEYS.VIP_PRICE_SATANG]: 49900,
+  [MONEY_SETTING_KEYS.VIP_PRICE_SATANG]: 59900,
   [MONEY_SETTING_KEYS.AFFILIATE_POOL_PERCENT]: 30,
   [MONEY_SETTING_KEYS.MIN_WITHDRAW_SATANG]: 30000,
   [MONEY_SETTING_KEYS.AFFILIATE_ENABLED]: false,
