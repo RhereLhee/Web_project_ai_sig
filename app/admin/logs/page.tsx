@@ -281,7 +281,7 @@ export default function AdminLogsPage() {
             <h3 className="font-semibold text-gray-900">2. UptimeRobot (แนะนำ - ฟรี)</h3>
             <p>ไปที่ <span className="font-mono bg-gray-200 px-1 rounded">uptimerobot.com</span> สร้าง Monitor ชี้มาที่:</p>
             <code className="block bg-gray-900 text-green-400 p-3 rounded mt-2">
-              {typeof window !== 'undefined' ? window.location.origin : 'https://your-domain.com'}/api/health
+              {process.env.NEXT_PUBLIC_APP_URL || 'https://your-domain.com'}/api/health
             </code>
           </div>
           <div>

@@ -19,15 +19,23 @@ export interface LogEntry {
 
 // ============================================
 // IN-MEMORY LOG STORE
-// เก็บ log ล่าสุด 500 รายการ ดูผ่าน Admin API
+// เก็บ log ไว้ 90 วัน (3 เดือน) แล้วลบอัตโนมัติ
+// Hard cap 5000 รายการป้องกัน memory เต็ม
 // ============================================
-const MAX_LOG_ENTRIES = 500
+const MAX_LOG_ENTRIES = 5000
+const LOG_RETENTION_MS = 90 * 24 * 60 * 60 * 1000 // 90 วัน
 
 class LogStore {
   private entries: LogEntry[] = []
 
   add(entry: LogEntry): void {
     this.entries.push(entry)
+
+    // ลบ entries ที่เก่ากว่า 90 วัน (ทำทุกครั้งที่เพิ่ม entry ใหม่)
+    const cutoff = new Date(Date.now() - LOG_RETENTION_MS).toISOString()
+    this.entries = this.entries.filter(e => e.timestamp >= cutoff)
+
+    // Hard cap กันกรณี log ถี่มากจนเกิน memory
     if (this.entries.length > MAX_LOG_ENTRIES) {
       this.entries = this.entries.slice(-MAX_LOG_ENTRIES)
     }
