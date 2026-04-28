@@ -4,11 +4,9 @@
 //   1. Validate file & order
 //   2. SHA-256 hash — reject duplicates (same slip submitted twice = reuse attempt)
 //   3. Save file to /public/uploads/slips/
-//   4. Call SlipOK (lib/slipok.ts) — VERIFIED | REJECTED | MANUAL
+//   4. Call EasySlip (lib/slipok.ts) — VERIFIED | REJECTED | MANUAL
 //   5. Create SlipVerification row
-//   6. On VERIFIED + amount match: create BankTransaction (1:1 with order)
-//      The order is NOT auto-approved here — admin still needs to click approve.
-//      This separates "we received the money" from "activate the subscription".
+//   6. On VERIFIED + amount match: create BankTransaction + auto-approve order
 //   7. Return slipUrl + verification status to the client
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -20,6 +18,7 @@ import { existsSync } from 'fs'
 import { verifySlip, sha256, type SlipVerifyStatus } from '@/lib/slipok'
 import { logger } from '@/lib/logger'
 import { sendSlipSubmittedAlert } from '@/lib/email'
+import { activateOrder } from '@/lib/order-approve'
 import { Prisma, SlipVerificationStatus } from '@prisma/client'
 
 /** Map the SlipOK library status into the DB enum.
@@ -240,14 +239,39 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // Notify admin for every slip submission so they can approve quickly,
-    // especially when SlipOK returns MANUAL/PENDING (fallback mode).
+    // Auto-approve when EasySlip confirms the slip is VERIFIED.
+    // MANUAL/REJECTED still require admin review.
+    let autoApproved = false
+    if (verification.status === 'VERIFIED') {
+      try {
+        const result = await activateOrder(order.id)
+        autoApproved = result.kind === 'ok' || result.kind === 'ok'
+        if (result.kind === 'ok') {
+          autoApproved = true
+          logger.info('Order auto-approved after EasySlip verification', {
+            context: 'payment',
+            userId: payload.userId,
+            metadata: { orderId: order.id, orderNumber },
+          })
+        }
+      } catch (e) {
+        logger.error('Auto-approve failed (order stays PENDING — admin can approve manually)', {
+          context: 'payment',
+          metadata: { orderId: order.id },
+          error: e instanceof Error ? e.message : String(e),
+        })
+      }
+    }
+
     const adminEmail = process.env.ALERT_EMAIL
     if (adminEmail) {
       sendSlipSubmittedAlert({
         adminEmail,
         orderNumber,
         userId: payload.userId,
+        userName: user?.name ?? null,
+        userEmail: user?.email ?? null,
+        userPhone: user?.phone ?? null,
         slipUrl,
         verificationStatus: verification.status,
         amountSatang: verification.parsed.amountSatang ?? null,
@@ -256,17 +280,17 @@ export async function POST(request: NextRequest) {
       }).catch(() => {})
     }
 
-    const message =
-      verification.status === 'VERIFIED'
-        ? 'สลิปถูกยืนยันโดย SlipOK แล้ว รอ Admin อนุมัติเปิดใช้งาน'
-        : verification.status === 'REJECTED'
-          ? `สลิปไม่ผ่านการตรวจสอบ: ${verification.errorMessage || 'ไม่ทราบสาเหตุ'} — Admin จะตรวจสอบให้อีกครั้ง`
-          : 'อัพโหลดสลิปสำเร็จ รอ Admin ตรวจสอบ 1-3 วันทำการ'
+    const message = autoApproved
+      ? 'ยืนยันสลิปสำเร็จ! เปิดใช้งาน Signal แล้ว'
+      : verification.status === 'REJECTED'
+        ? `สลิปไม่ผ่านการตรวจสอบ: ${verification.errorMessage || 'ไม่ทราบสาเหตุ'} — Admin จะตรวจสอบให้อีกครั้ง`
+        : 'อัพโหลดสลิปสำเร็จ รอ Admin ตรวจสอบ 1-3 วันทำการ'
 
     return NextResponse.json({
       success: true,
       message,
       slipUrl,
+      autoApproved,
       verification: {
         status: verification.status,
         provider: verification.provider,
