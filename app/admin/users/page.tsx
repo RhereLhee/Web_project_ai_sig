@@ -64,7 +64,7 @@ export default async function AdminUsersPage({ searchParams }: Props) {
             name="search"
             placeholder="ค้นหา email หรือชื่อ..."
             defaultValue={params.search}
-            className="px-3 py-2 border rounded-lg text-sm w-64"
+            className="px-3 py-2 border rounded-lg text-sm w-full sm:w-64"
           />
           <select name="role" defaultValue={params.role} className="px-3 py-2 border rounded-lg text-sm">
             <option value="ALL">ทุก Role</option>

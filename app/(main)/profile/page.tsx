@@ -111,18 +111,18 @@ export default async function ProfilePage() {
         </div>
 
         {/* Stats row */}
-        <div className="grid grid-cols-3 divide-x divide-gray-100 mt-5 pt-5 border-t border-gray-100">
-          <div className="px-4 text-center first:pl-0 last:pr-0">
+        <div className="grid grid-cols-3 divide-x divide-gray-100 mt-5 pt-5 border-t border-gray-100 overflow-hidden">
+          <div className="px-2 text-center">
             <p className="text-xs text-gray-500 mb-0.5">ยอดคงเหลือ</p>
-            <p className="text-lg font-bold text-emerald-600">฿{(stats.balance / 100).toLocaleString()}</p>
+            <p className="text-base font-bold text-emerald-600">฿{(stats.balance / 100).toLocaleString()}</p>
           </div>
-          <div className="px-4 text-center">
+          <div className="px-2 text-center">
             <p className="text-xs text-gray-500 mb-0.5">ทีม</p>
-            <p className="text-lg font-bold text-blue-600">{stats.referrals} คน</p>
+            <p className="text-base font-bold text-blue-600">{stats.referrals} คน</p>
           </div>
-          <div className="px-4 text-center">
+          <div className="px-2 text-center min-w-0">
             <p className="text-xs text-gray-500 mb-0.5">รหัสแนะนำ</p>
-            <p className="text-base font-mono font-bold text-cyan-600">{user.referralCode}</p>
+            <p className="text-xs font-mono font-bold text-cyan-600 break-all leading-tight">{user.referralCode}</p>
           </div>
         </div>
       </div>
