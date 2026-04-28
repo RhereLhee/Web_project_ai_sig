@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { useRouter } from "next/navigation"
 
 interface CheckoutFormProps {
@@ -26,8 +26,12 @@ export function CheckoutForm({ plan, user, isSignalPlan }: CheckoutFormProps) {
   const [error, setError] = useState("")
   const [step, setStep] = useState<'select' | 'qr' | 'success'>('select')
   const [orderData, setOrderData] = useState<any>(null)
+  const [autoApproved, setAutoApproved] = useState(false)
+  const submittingRef = useRef(false)
 
   const handlePaymentMethod = async (method: 'QR_CODE' | 'BANK_APP') => {
+    if (submittingRef.current) return
+    submittingRef.current = true
     setLoading(true)
     setError("")
 
@@ -55,15 +59,18 @@ export function CheckoutForm({ plan, user, isSignalPlan }: CheckoutFormProps) {
       if (!res.ok) {
         setError(data.error || 'เกิดข้อผิดพลาด')
         setLoading(false)
+        submittingRef.current = false
         return
       }
 
       setOrderData(data)
       setStep('qr')
       setLoading(false)
+      submittingRef.current = false
     } catch (err) {
       setError('เกิดข้อผิดพลาด')
       setLoading(false)
+      submittingRef.current = false
     }
   }
 
@@ -90,6 +97,7 @@ export function CheckoutForm({ plan, user, isSignalPlan }: CheckoutFormProps) {
         return
       }
 
+      setAutoApproved(!!data.autoApproved)
       setStep('success')
       setLoading(false)
     } catch (err) {
@@ -101,11 +109,15 @@ export function CheckoutForm({ plan, user, isSignalPlan }: CheckoutFormProps) {
   if (step === 'success') {
     return (
       <div className="card text-center py-8">
-        <div className="text-6xl mb-4"></div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">ส่งคำสั่งซื้อสำเร็จ!</h2>
+        <div className="text-6xl mb-4">{autoApproved ? '🎉' : '✅'}</div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">
+          {autoApproved ? 'เปิดใช้งานแล้ว!' : 'ส่งคำสั่งซื้อสำเร็จ!'}
+        </h2>
         <p className="text-gray-600 mb-6">
-          เรากำลังตรวจสอบการชำระเงินของคุณ<br />
-          จะแจ้งให้ทราบภายใน 5-10 นาที
+          {autoApproved
+            ? <>ยืนยันการชำระเงินสำเร็จ<br />Signal ของคุณเปิดใช้งานแล้ว ไปดูได้เลย!</>
+            : <>เรากำลังตรวจสอบการชำระเงินของคุณ<br />จะแจ้งให้ทราบภายใน 5-10 นาที</>
+          }
         </p>
         <button
           onClick={() => router.push(isSignalPlan ? '/signals' : '/dashboard')}
