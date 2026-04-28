@@ -19,6 +19,7 @@ import { join } from 'path'
 import { existsSync } from 'fs'
 import { verifySlip, sha256, type SlipVerifyStatus } from '@/lib/slipok'
 import { logger } from '@/lib/logger'
+import { sendSlipSubmittedAlert } from '@/lib/email'
 import { Prisma, SlipVerificationStatus } from '@prisma/client'
 
 /** Map the SlipOK library status into the DB enum.
@@ -238,6 +239,22 @@ export async function POST(request: NextRequest) {
         expectedAmountSatang,
       },
     })
+
+    // Notify admin for every slip submission so they can approve quickly,
+    // especially when SlipOK returns MANUAL/PENDING (fallback mode).
+    const adminEmail = process.env.ALERT_EMAIL
+    if (adminEmail) {
+      sendSlipSubmittedAlert({
+        adminEmail,
+        orderNumber,
+        userId: payload.userId,
+        slipUrl,
+        verificationStatus: verification.status,
+        amountSatang: verification.parsed.amountSatang ?? null,
+        senderBank: verification.parsed.senderBank ?? null,
+        senderName: verification.parsed.senderName ?? null,
+      }).catch(() => {})
+    }
 
     const message =
       verification.status === 'VERIFIED'

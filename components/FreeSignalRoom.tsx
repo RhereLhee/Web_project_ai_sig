@@ -3,7 +3,7 @@
 //
 //  - Only visible 20:00–21:00 Asia/Bangkok (enforced server-side too)
 //  - Only EURUSD + USDJPY are streamed through to SignalRoomContent
-//  - Caps at 10 signals/day globally — live counter "X/10"
+//  - Caps at 5 signals/day globally — live counter "X/5"
 //  - PiP disabled, sound disabled
 //  - Renders a countdown to the 21:00 close so users feel the pressure.
 "use client"

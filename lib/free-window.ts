@@ -3,7 +3,7 @@
 //
 // Rules (Asia/Bangkok):
 //   - Window:       20:00–21:00 (1 hour/day)
-//   - Daily cap:    10 signals/day globally — counter visible to user ("5/10")
+//   - Daily cap:    5 signals/day globally — counter visible to user ("3/5")
 //   - Pairs:        EURUSD (EU) + USDJPY (UJ) only
 //   - PIP:          disabled for free users
 //   - Sound alert:  disabled for free users
@@ -12,7 +12,7 @@
 
 export const FREE_WINDOW_START_HOUR = 20 // 20:00 Asia/Bangkok
 export const FREE_WINDOW_END_HOUR = 21   // 21:00 Asia/Bangkok
-export const FREE_DAILY_LIMIT = 10
+export const FREE_DAILY_LIMIT = 5
 // Broker symbols use an 'm' suffix. Keep that explicit here — mismatches silently
 // break the whole gate, so we centralise both the broker keys and the display names.
 export const FREE_PAIR_SYMBOLS = ['EURUSDm', 'USDJPYm'] as const

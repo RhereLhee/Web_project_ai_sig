@@ -1,7 +1,8 @@
 // app/api/checkout/signal/route.ts
 //
 // Locked pricing model:
-//   - Single VIP tier @ VIP_PRICE_SATANG (default 49900 = ฿499) for 1 month
+//   - Single VIP tier @ VIP_PRICE_SATANG (default 59900 = ฿599) for 1 month
+//   - Referred users get ฿100 discount → pay ฿499 (REFERRAL_DISCOUNT_SATANG = 10000).
 //   - Price is fetched from SystemSetting via getVipPriceSatang() so admin can
 //     adjust without redeploy. Server is the source of truth — clients NEVER
 //     pass price; they only request "create me a VIP order".
@@ -20,6 +21,9 @@ import { PaymentMethod } from "@prisma/client"
 /** Months of access granted per VIP order. Single tier, 1 month. */
 const VIP_DURATION_MONTHS = 1
 const VIP_BONUS_MONTHS = 0
+
+/** ฿100 discount for users referred by an affiliate link. */
+const REFERRAL_DISCOUNT_SATANG = 10000
 
 const VALID_PAYMENT_METHODS: PaymentMethod[] = ["QR_CODE", "BANK_APP", "CREDIT_CARD"]
 function coercePaymentMethod(input: unknown): PaymentMethod {
@@ -52,35 +56,34 @@ export async function POST(request: NextRequest) {
     }
 
     // Server-side price (never trust client).
-    const finalAmountSatang = await getVipPriceSatang()
-    if (!Number.isInteger(finalAmountSatang) || finalAmountSatang <= 0) {
+    const basePriceSatang = await getVipPriceSatang()
+    if (!Number.isInteger(basePriceSatang) || basePriceSatang <= 0) {
       return NextResponse.json({ error: "ราคา VIP ไม่ถูกต้อง" }, { status: 500 })
     }
+
+    // Referral discount: ฿100 off if the user was referred by someone.
+    const hasReferral = !!user.referredById
+    const discountSatang = hasReferral ? REFERRAL_DISCOUNT_SATANG : 0
+    const finalAmountSatang = basePriceSatang - discountSatang
 
     // Order number — Date.now() + crypto bytes is collision-safe enough for our scale.
     const { randomBytes } = await import("crypto")
     const orderNumber = `SIG-${Date.now()}-${randomBytes(4).toString("hex").toUpperCase()}`
 
+    // Transaction: only DB work — no external calls (QR generation happens outside).
     const { order, expectedAmountBaht } = await prisma.$transaction(async (tx) => {
       const payFields = await buildOrderPaymentFields(tx, finalAmountSatang)
       const firstPayment = await isFirstPaymentForBuyer(tx, user.id)
 
       const expectedBaht = payFields.expectedAmountSatang / 100
-      let qrCodeData: string | null = null
-      try {
-        const qrPayload = generatePayload(PROMPTPAY_CONFIG.id, { amount: expectedBaht })
-        qrCodeData = await generateQRCode(qrPayload)
-      } catch (err) {
-        logger.error("QR generation error", { context: "payment", error: err })
-      }
 
       const created = await tx.order.create({
         data: {
           orderNumber,
           userId: user.id,
           orderType: "SIGNAL",
-          originalAmount: finalAmountSatang,
-          discountAmount: 0,
+          originalAmount: basePriceSatang,
+          discountAmount: discountSatang,
           // Affiliate pool is computed dynamically at approve time (30% of finalAmount).
           affiliatePool: 0,
           finalAmount: finalAmountSatang,
@@ -90,18 +93,31 @@ export async function POST(request: NextRequest) {
           isFirstPayment: firstPayment,
           status: "PENDING",
           paymentMethod,
-          qrCodeData,
+          qrCodeData: null,
           metadata: {
             tier: "VIP",
             months: VIP_DURATION_MONTHS,
             bonus: VIP_BONUS_MONTHS,
             totalMonths: VIP_DURATION_MONTHS + VIP_BONUS_MONTHS,
-            hasReferral: !!user.referredById,
+            hasReferral,
           },
         },
       })
       return { order: created, expectedAmountBaht: expectedBaht }
     })
+
+    // Generate QR code OUTSIDE the transaction so it never races the 5-second
+    // Prisma transaction timeout. The order is already committed at this point.
+    let qrCodeData: string | null = null
+    try {
+      const qrPayload = generatePayload(PROMPTPAY_CONFIG.id, { amount: expectedAmountBaht })
+      qrCodeData = await generateQRCode(qrPayload)
+      if (qrCodeData) {
+        await prisma.order.update({ where: { id: order.id }, data: { qrCodeData } })
+      }
+    } catch (err) {
+      logger.error("QR generation error", { context: "payment", error: err })
+    }
 
     return NextResponse.json({
       success: true,
@@ -112,15 +128,17 @@ export async function POST(request: NextRequest) {
       finalPrice: expectedAmountBaht,
       amountSuffix: order.amountSuffix,
       expiresAt: order.expiresAt,
-      qrCodeData: order.qrCodeData,
+      qrCodeData,
       paymentMethod,
       promptPayId: PROMPTPAY_CONFIG.id,
       promptPayName: PROMPTPAY_CONFIG.name,
+      discount: discountSatang > 0 ? { satang: discountSatang, baht: discountSatang / 100 } : null,
       plan: {
         tier: "VIP",
         months: VIP_DURATION_MONTHS,
         bonus: VIP_BONUS_MONTHS,
         totalMonths: VIP_DURATION_MONTHS + VIP_BONUS_MONTHS,
+        originalPriceSatang: basePriceSatang,
         priceSatang: finalAmountSatang,
         priceBaht: finalAmountSatang / 100,
       },
@@ -142,6 +160,8 @@ export async function GET() {
       totalMonths: VIP_DURATION_MONTHS + VIP_BONUS_MONTHS,
       priceSatang,
       priceBaht: priceSatang / 100,
+      referralDiscountSatang: REFERRAL_DISCOUNT_SATANG,
+      referralDiscountBaht: REFERRAL_DISCOUNT_SATANG / 100,
     },
   })
 }
