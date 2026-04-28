@@ -3,27 +3,17 @@ import { getCurrentUser } from "@/lib/jwt"
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import { prisma } from "@/lib/prisma"
-import { ProfileEditButton } from "@/components/ProfileEditButton"
+import { ProfileActions } from "./ProfileActions"
 
-// ฟังก์ชันแปลงเบอร์โทรให้แสดงแบบไทย (0xxx)
 function formatPhoneDisplay(phone: string | null): string {
-  if (!phone) return '-'
-  
-  // ถ้าขึ้นต้นด้วย 66 ให้แปลงเป็น 0
-  if (phone.startsWith('66')) {
-    return '0' + phone.slice(2)
-  }
-  // ถ้าขึ้นต้นด้วย +66 ให้แปลงเป็น 0
-  if (phone.startsWith('+66')) {
-    return '0' + phone.slice(3)
-  }
-  
+  if (!phone) return "-"
+  if (phone.startsWith("66")) return "0" + phone.slice(2)
+  if (phone.startsWith("+66")) return "0" + phone.slice(3)
   return phone
 }
 
-// ดึงข้อมูล user แบบครบถ้วน (รวม phone และ partner)
 async function getFullUserProfile(userId: string) {
-  const user = await prisma.user.findUnique({
+  return prisma.user.findUnique({
     where: { id: userId },
     select: {
       id: true,
@@ -32,40 +22,29 @@ async function getFullUserProfile(userId: string) {
       phone: true,
       role: true,
       referralCode: true,
+      referredById: true,
       createdAt: true,
       partner: {
-        select: {
-          status: true,
-          endDate: true,
-          withdrawPhone: true,
-        }
+        select: { status: true, endDate: true, withdrawPhone: true },
       },
       signalSubscriptions: {
-        where: { status: 'ACTIVE' },
-        orderBy: { endDate: 'desc' },
+        where: { status: "ACTIVE" },
+        orderBy: { endDate: "desc" },
         take: 1,
-        select: {
-          status: true,
-          endDate: true,
-        }
-      }
-    }
+        select: { status: true, endDate: true },
+      },
+    },
   })
-
-  return user
 }
 
 async function getProfileStats(userId: string) {
   const [commissionBalance, totalReferrals] = await Promise.all([
     prisma.commission.aggregate({
-      where: { userId, status: 'PENDING' },
+      where: { userId, status: "PENDING" },
       _sum: { amount: true },
     }),
-    prisma.user.count({
-      where: { referredById: userId },
-    }),
+    prisma.user.count({ where: { referredById: userId } }),
   ])
-
   return {
     balance: commissionBalance._sum.amount || 0,
     referrals: totalReferrals,
@@ -81,178 +60,151 @@ export default async function ProfilePage() {
 
   const stats = await getProfileStats(user.id)
 
-  // เช็คสถานะต่างๆ
-  const hasSignal = user.signalSubscriptions[0]?.status === 'ACTIVE' && 
-    (user.signalSubscriptions[0]?.endDate ? new Date(user.signalSubscriptions[0].endDate) > new Date() : true)
-  
-  const hasSub = user.partner?.status === 'ACTIVE' && 
+  const hasSignal =
+    user.signalSubscriptions[0]?.status === "ACTIVE" &&
+    (user.signalSubscriptions[0]?.endDate
+      ? new Date(user.signalSubscriptions[0].endDate) > new Date()
+      : true)
+
+  const hasSub =
+    user.partner?.status === "ACTIVE" &&
     (user.partner?.endDate ? new Date(user.partner.endDate) > new Date() : true)
 
-  // เช็คว่าเบอร์ถูกล็อคหรือยัง
   const isPhoneLocked = !!user.partner?.withdrawPhone
-
-  // แปลงเบอร์โทรให้แสดงแบบไทย
   const displayPhone = formatPhoneDisplay(user.phone)
 
-  return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">โปรไฟล์</h1>
-        <ProfileEditButton 
-          user={{ 
-            name: user.name, 
-            phone: user.phone 
-          }} 
-          isPhoneLocked={isPhoneLocked}
-        />
-      </div>
+  const initial = user.name?.charAt(0) || user.email?.charAt(0) || "U"
 
-      {/* Profile Card */}
-      <div className="card">
-        <div className="flex items-start space-x-6 mb-6">
-          <div className="w-20 h-20 bg-gradient-to-br from-emerald-500 to-cyan-600 rounded-full flex items-center justify-center text-white text-3xl font-bold flex-shrink-0">
-            {user.name?.charAt(0) || user.email?.charAt(0) || 'U'}
+  return (
+    <div className="max-w-3xl mx-auto space-y-6">
+
+      {/* ── Avatar + name header ── */}
+      <div className="bg-white rounded-xl shadow-sm p-6">
+        <div className="flex items-center gap-5">
+          <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-cyan-600 rounded-full flex items-center justify-center text-white text-2xl font-bold flex-shrink-0 uppercase">
+            {initial}
           </div>
-          <div className="flex-1">
-            <h2 className="text-2xl font-bold text-gray-900">{user.name || 'User'}</h2>
-            <p className="text-gray-600 mb-1">{user.email}</p>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl font-bold text-gray-900 truncate">{user.name || "User"}</h1>
+            <p className="text-sm text-gray-500 truncate">{user.email}</p>
             {user.phone && (
-              <p className="text-gray-500 text-sm flex items-center">
+              <p className="text-sm text-gray-500 flex items-center gap-1 mt-0.5">
                 {displayPhone}
                 {isPhoneLocked && (
-                  <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
-                    ล็อค
-                  </span>
+                  <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">ล็อค</span>
                 )}
               </p>
             )}
-            <div className="flex gap-2 mt-3">
+            <div className="flex flex-wrap gap-1.5 mt-2">
               {hasSignal && (
-                <span className="px-3 py-1 bg-emerald-100 text-emerald-800 text-sm font-semibold rounded-full">
-                  Signal
-                </span>
+                <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-full">Signal</span>
               )}
               {hasSub && (
-                <span className="px-3 py-1 bg-purple-100 text-purple-800 text-sm font-semibold rounded-full">
-                  PRO
-                </span>
+                <span className="px-2.5 py-0.5 bg-purple-100 text-purple-800 text-xs font-semibold rounded-full">PRO</span>
               )}
-              {user.role === 'ADMIN' && (
-                <span className="px-3 py-1 bg-red-100 text-red-800 text-sm font-semibold rounded-full">
-                  Admin
-                </span>
+              {user.role === "ADMIN" && (
+                <span className="px-2.5 py-0.5 bg-red-100 text-red-800 text-xs font-semibold rounded-full">Admin</span>
               )}
               {!hasSignal && !hasSub && (
-                <span className="px-3 py-1 bg-gray-100 text-gray-800 text-sm font-semibold rounded-full">
-                  Free
-                </span>
+                <span className="px-2.5 py-0.5 bg-gray-100 text-gray-600 text-xs font-semibold rounded-full">Free</span>
               )}
             </div>
           </div>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-4">
-          <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
-            <p className="text-sm text-gray-600 mb-1">ยอดคงเหลือ</p>
-            <p className="text-2xl font-bold text-emerald-600">฿{(stats.balance / 100).toLocaleString()}</p>
+        {/* Stats row */}
+        <div className="grid grid-cols-3 divide-x divide-gray-100 mt-5 pt-5 border-t border-gray-100">
+          <div className="px-4 text-center first:pl-0 last:pr-0">
+            <p className="text-xs text-gray-500 mb-0.5">ยอดคงเหลือ</p>
+            <p className="text-lg font-bold text-emerald-600">฿{(stats.balance / 100).toLocaleString()}</p>
           </div>
-          
-          <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-            <p className="text-sm text-gray-600 mb-1">ทีม</p>
-            <p className="text-2xl font-bold text-blue-600">{stats.referrals} คน</p>
+          <div className="px-4 text-center">
+            <p className="text-xs text-gray-500 mb-0.5">ทีม</p>
+            <p className="text-lg font-bold text-blue-600">{stats.referrals} คน</p>
           </div>
-          
-          <div className="p-4 bg-cyan-50 rounded-lg border border-cyan-200">
-            <p className="text-sm text-gray-600 mb-1">รหัสแนะนำ</p>
-            <p className="text-lg font-mono font-bold text-cyan-600">{user.referralCode}</p>
+          <div className="px-4 text-center">
+            <p className="text-xs text-gray-500 mb-0.5">รหัสแนะนำ</p>
+            <p className="text-base font-mono font-bold text-cyan-600">{user.referralCode}</p>
           </div>
         </div>
       </div>
 
-      {/* Subscriptions */}
-      <div className="card">
+      {/* ── แพ็คเกจ ── */}
+      <div className="bg-white rounded-xl shadow-sm p-5 md:p-6">
         <h2 className="font-semibold text-gray-900 mb-4">แพ็คเกจของคุณ</h2>
-        
-        <div className="grid md:grid-cols-2 gap-4">
-          {/* Signal Access */}
-          <div className={`p-4 border-2 rounded-lg ${hasSignal ? 'border-emerald-500 bg-emerald-50' : 'border-gray-300 bg-gray-50'}`}>
+        <div className="grid sm:grid-cols-2 gap-3">
+          {/* Signal */}
+          <div className={`p-4 border-2 rounded-xl ${hasSignal ? "border-emerald-400 bg-emerald-50" : "border-gray-200 bg-gray-50"}`}>
             <div className="flex items-center justify-between mb-2">
-              <h3 className="font-semibold text-gray-900">Signal Access</h3>
+              <span className="font-medium text-gray-900 text-sm">Signal Access</span>
               {hasSignal ? (
-                <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <span className="w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center">
+                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                </span>
               ) : (
-                <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
+                <span className="w-5 h-5 bg-gray-300 rounded-full" />
               )}
             </div>
             {hasSignal && user.signalSubscriptions[0]?.endDate ? (
-              <p className="text-sm text-gray-600">
-                หมดอายุ: {new Date(user.signalSubscriptions[0].endDate).toLocaleDateString('th-TH')}
-              </p>
-            ) : !hasSignal ? (
-              <Link href="/signals" className="inline-block mt-2 text-sm font-medium text-emerald-600 hover:text-emerald-700">
-                ซื้อ Signal 
-              </Link>
-            ) : null}
+              <p className="text-xs text-gray-500">หมดอายุ {new Date(user.signalSubscriptions[0].endDate).toLocaleDateString("th-TH")}</p>
+            ) : (
+              <Link href="/signals" className="text-xs font-medium text-emerald-600 hover:underline">ซื้อ Signal →</Link>
+            )}
           </div>
 
           {/* Partner */}
-          <div className={`p-4 border-2 rounded-lg ${hasSub ? 'border-purple-500 bg-purple-50' : 'border-gray-300 bg-gray-50'}`}>
+          <div className={`p-4 border-2 rounded-xl ${hasSub ? "border-purple-400 bg-purple-50" : "border-gray-200 bg-gray-50"}`}>
             <div className="flex items-center justify-between mb-2">
-              <h3 className="font-semibold text-gray-900">Partner</h3>
+              <span className="font-medium text-gray-900 text-sm">Partner</span>
               {hasSub ? (
-                <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <span className="w-5 h-5 bg-purple-500 rounded-full flex items-center justify-center">
+                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                </span>
               ) : (
-                <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
+                <span className="w-5 h-5 bg-gray-300 rounded-full" />
               )}
             </div>
             {hasSub && user.partner?.endDate ? (
-              <p className="text-sm text-gray-600">
-                หมดอายุ: {new Date(user.partner.endDate).toLocaleDateString('th-TH')}
-              </p>
-            ) : !hasSub ? (
-              <Link href="/partner" className="inline-block mt-2 text-sm font-medium text-purple-600 hover:text-purple-700">
-                สมัคร Partner 
-              </Link>
-            ) : null}
+              <p className="text-xs text-gray-500">หมดอายุ {new Date(user.partner.endDate).toLocaleDateString("th-TH")}</p>
+            ) : (
+              <Link href="/partner" className="text-xs font-medium text-purple-600 hover:underline">สมัคร Partner →</Link>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Quick Actions */}
-      <div className="grid md:grid-cols-2 gap-4">
-        <Link href="/partner" className="card hover:shadow-lg transition-shadow group">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold text-gray-900 group-hover:text-emerald-600 transition-colors">Partner Dashboard</h3>
-              <p className="text-sm text-gray-600 mt-1">คงเหลือ ฿{(stats.balance / 100).toLocaleString()}</p>
-            </div>
-            <svg className="w-6 h-6 text-gray-400 group-hover:text-emerald-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
+      {/* ── Quick links ── */}
+      <div className="grid sm:grid-cols-2 gap-3">
+        <Link href="/partner" className="bg-white rounded-xl shadow-sm p-4 flex items-center justify-between hover:shadow-md transition-shadow group">
+          <div>
+            <p className="font-medium text-sm text-gray-900 group-hover:text-emerald-600 transition-colors">Partner Dashboard</p>
+            <p className="text-xs text-gray-500 mt-0.5">คงเหลือ ฿{(stats.balance / 100).toLocaleString()}</p>
           </div>
+          <svg className="w-5 h-5 text-gray-400 group-hover:text-emerald-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
         </Link>
-
-        <Link href="/signals" className="card hover:shadow-lg transition-shadow group">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold text-gray-900 group-hover:text-purple-600 transition-colors">Signal Room</h3>
-              <p className="text-sm text-gray-600 mt-1">ดู Signals ทั้งหมด</p>
-            </div>
-            <svg className="w-6 h-6 text-gray-400 group-hover:text-purple-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
+        <Link href="/signals" className="bg-white rounded-xl shadow-sm p-4 flex items-center justify-between hover:shadow-md transition-shadow group">
+          <div>
+            <p className="font-medium text-sm text-gray-900 group-hover:text-purple-600 transition-colors">Signal Room</p>
+            <p className="text-xs text-gray-500 mt-0.5">ดู Signals ทั้งหมด</p>
           </div>
+          <svg className="w-5 h-5 text-gray-400 group-hover:text-purple-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
         </Link>
       </div>
+
+      {/* ── Settings sections (client) ── */}
+      <ProfileActions
+        user={{ name: user.name, phone: displayPhone, email: user.email ?? "" }}
+        isPhoneLocked={isPhoneLocked}
+        hasReferrals={stats.referrals > 0}
+      />
     </div>
   )
 }
