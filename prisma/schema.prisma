@@ -1082,3 +1082,24 @@ model FreeSignalObservation {
   @@unique([date, symbol, entryTime])
   @@index([date])
 }
+
+
+// ============================================
+// SYSTEM LOGS (database-persisted)
+// Replaces in-memory log store. Auto-purge
+// entries older than 90 days via DB query.
+// ============================================
+model SystemLog {
+  id           String   @id @default(cuid())
+  level        String   // info | warn | error | fatal
+  message      String
+  context      String?
+  userId       String?
+  errorMessage String?  @db.Text
+  metadata     Json?
+  timestamp    DateTime @default(now())
+
+  @@index([level])
+  @@index([context])
+  @@index([timestamp])
+}

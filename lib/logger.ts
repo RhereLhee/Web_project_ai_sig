@@ -1,90 +1,57 @@
 // lib/logger.ts
-// Structured Logger — Error Handling + Email Notification + In-Memory Log Store
-// แนวคิดจาก n8n: ระบบต้อง "เอาอยู่" แม้วันที่มันพัง
-// ดู log ผ่าน: GET /api/admin/logs
-// แจ้งเตือน error/fatal ผ่าน Email (ไม่ใช่ Telegram)
+// Structured Logger — writes to PostgreSQL (SystemLog table)
+// In-memory fallback buffer for the tiny window before DB is ready.
+// Email notification for error/fatal with deduplication.
+
+import { prisma } from './prisma'
 
 type LogLevel = 'info' | 'warn' | 'error' | 'fatal'
 
 export interface LogEntry {
   level: LogLevel
   message: string
-  context?: string      // เช่น 'auth', 'payment', 'withdrawal', 'signal', 'register'
+  context?: string
   userId?: string
   error?: unknown
-  errorMessage?: string  // serialized error message สำหรับ API response
+  errorMessage?: string
   metadata?: Record<string, unknown>
   timestamp: string
 }
 
 // ============================================
-// IN-MEMORY LOG STORE
-// เก็บ log ไว้ 90 วัน (3 เดือน) แล้วลบอัตโนมัติ
-// Hard cap 5000 รายการป้องกัน memory เต็ม
+// LEGACY IN-MEMORY STORE (kept for getStats())
+// Holds only the current server session's logs
+// so the API can compute stats without a full
+// DB aggregation on every request.
 // ============================================
-const MAX_LOG_ENTRIES = 5000
-const LOG_RETENTION_MS = 90 * 24 * 60 * 60 * 1000 // 90 วัน
-
 class LogStore {
   private entries: LogEntry[] = []
+  private readonly MAX = 1000
 
   add(entry: LogEntry): void {
     this.entries.push(entry)
-
-    // ลบ entries ที่เก่ากว่า 90 วัน (ทำทุกครั้งที่เพิ่ม entry ใหม่)
-    const cutoff = new Date(Date.now() - LOG_RETENTION_MS).toISOString()
-    this.entries = this.entries.filter(e => e.timestamp >= cutoff)
-
-    // Hard cap กันกรณี log ถี่มากจนเกิน memory
-    if (this.entries.length > MAX_LOG_ENTRIES) {
-      this.entries = this.entries.slice(-MAX_LOG_ENTRIES)
-    }
+    if (this.entries.length > this.MAX) this.entries.shift()
   }
 
   getAll(options?: { level?: LogLevel; context?: string; limit?: number }): LogEntry[] {
-    let result = [...this.entries]
-
-    if (options?.level) {
-      result = result.filter(e => e.level === options.level)
-    }
-    if (options?.context) {
-      result = result.filter(e => e.context === options.context)
-    }
-
-    result.reverse()
-
-    if (options?.limit) {
-      result = result.slice(0, options.limit)
-    }
-
+    let result = [...this.entries].reverse()
+    if (options?.level) result = result.filter(e => e.level === options.level)
+    if (options?.context) result = result.filter(e => e.context === options.context)
+    if (options?.limit) result = result.slice(0, options.limit)
     return result
-  }
-
-  getErrors(): LogEntry[] {
-    return this.getAll({ level: 'error' })
-  }
-
-  getFatals(): LogEntry[] {
-    return this.getAll({ level: 'fatal' })
   }
 
   getStats(): { total: number; byLevel: Record<string, number>; byContext: Record<string, number> } {
     const byLevel: Record<string, number> = {}
     const byContext: Record<string, number> = {}
-
-    for (const entry of this.entries) {
-      byLevel[entry.level] = (byLevel[entry.level] || 0) + 1
-      if (entry.context) {
-        byContext[entry.context] = (byContext[entry.context] || 0) + 1
-      }
+    for (const e of this.entries) {
+      byLevel[e.level] = (byLevel[e.level] || 0) + 1
+      if (e.context) byContext[e.context] = (byContext[e.context] || 0) + 1
     }
-
     return { total: this.entries.length, byLevel, byContext }
   }
 
-  clear(): void {
-    this.entries = []
-  }
+  clear(): void { this.entries = [] }
 }
 
 export const logStore = new LogStore()
@@ -92,39 +59,21 @@ export const logStore = new LogStore()
 // ============================================
 // THROTTLE + DEDUPLICATION
 // 1 email per 5 min per (context+message) key
-// Counts occurrences during the cooldown window
 // ============================================
 const EMAIL_COOLDOWN_MS = 5 * 60 * 1000
 
-interface CooldownEntry {
-  lastSent: number
-  pendingCount: number   // how many times this error fired since last email
-}
-
+interface CooldownEntry { lastSent: number; pendingCount: number }
 const emailCooldowns = new Map<string, CooldownEntry>()
 
-function getCooldownKey(context: string, message: string): string {
-  // Group by context + first 80 chars of message (same error type)
-  return `${context || 'system'}::${message.substring(0, 80)}`
-}
-
-/**
- * Returns { shouldSend: true, count } when cooldown expired (time to send email).
- * Returns { shouldSend: false } and increments counter when still in cooldown.
- */
 function checkCooldown(context: string, message: string): { shouldSend: boolean; count: number } {
-  const key = getCooldownKey(context, message)
+  const key = `${context || 'system'}::${message.substring(0, 80)}`
   const entry = emailCooldowns.get(key)
   const now = Date.now()
-
   if (!entry || now - entry.lastSent >= EMAIL_COOLDOWN_MS) {
-    // Cooldown expired or first occurrence — send email
     const count = entry ? entry.pendingCount + 1 : 1
     emailCooldowns.set(key, { lastSent: now, pendingCount: 0 })
     return { shouldSend: true, count }
   }
-
-  // Still in cooldown — increment counter, don't send
   entry.pendingCount += 1
   return { shouldSend: false, count: 0 }
 }
@@ -132,18 +81,15 @@ function checkCooldown(context: string, message: string): { shouldSend: boolean;
 // ============================================
 // LOGGER CLASS
 // ============================================
-
 class Logger {
   private getErrorMessage(error: unknown): string {
     if (error instanceof Error) return error.message
     return String(error)
   }
 
-  /** Concise one-liner: first 300 chars of error.message, no stack trace */
   private truncateError(error: unknown, maxLen = 300): string {
     const msg = this.getErrorMessage(error)
-    if (msg.length <= maxLen) return msg
-    return msg.substring(0, maxLen) + '…'
+    return msg.length <= maxLen ? msg : msg.substring(0, maxLen) + '…'
   }
 
   private log(entry: LogEntry): void {
@@ -151,29 +97,51 @@ class Logger {
       entry.errorMessage = this.getErrorMessage(entry.error)
     }
 
-    // เก็บลง memory store
-    logStore.add({ ...entry, error: undefined, errorMessage: entry.errorMessage })
+    // 1. In-memory (for fast stats + session view)
+    logStore.add({ ...entry, error: undefined })
 
+    // 2. Console
     const prefix = `[${entry.timestamp}] [${entry.level.toUpperCase()}]${entry.context ? ` [${entry.context}]` : ''}`
-    const msg = `${prefix} ${entry.message}`
+    if (entry.level === 'error' || entry.level === 'fatal') {
+      console.error(prefix, entry.message, entry.errorMessage || '', entry.metadata ? JSON.stringify(entry.metadata) : '')
+    } else if (entry.level === 'warn') {
+      console.warn(prefix, entry.message)
+    } else {
+      console.log(prefix, entry.message)
+    }
 
-    switch (entry.level) {
-      case 'info':
-        console.log(msg, entry.metadata ? JSON.stringify(entry.metadata) : '')
-        break
-      case 'warn':
-        console.warn(msg, entry.metadata ? JSON.stringify(entry.metadata) : '')
-        break
-      case 'error':
-      case 'fatal': {
-        console.error(msg, entry.errorMessage || '', entry.metadata ? JSON.stringify(entry.metadata) : '')
-        // แจ้ง Email ทันที (throttled + deduplicated)
-        const { shouldSend, count } = checkCooldown(entry.context || 'system', entry.message)
-        if (shouldSend) {
-          this.notifyEmail(entry, count).catch(() => {})
-        }
-        break
+    // 3. Persist to DB (fire-and-forget — never throws)
+    this.persistToDB(entry).catch(() => {})
+
+    // 4. Email alert for error/fatal
+    if (entry.level === 'error' || entry.level === 'fatal') {
+      const { shouldSend, count } = checkCooldown(entry.context || 'system', entry.message)
+      if (shouldSend) this.notifyEmail(entry, count).catch(() => {})
+    }
+  }
+
+  private async persistToDB(entry: LogEntry): Promise<void> {
+    try {
+      await prisma.systemLog.create({
+        data: {
+          level: entry.level,
+          message: entry.message,
+          context: entry.context ?? null,
+          userId: entry.userId ?? null,
+          errorMessage: entry.errorMessage ?? null,
+          metadata: entry.metadata ? (entry.metadata as object) : undefined,
+          timestamp: new Date(entry.timestamp),
+        },
+      })
+
+      // Purge entries older than 90 days (async, low priority)
+      // Run probabilistically (1 in 100) to avoid hammering DB on every log
+      if (Math.random() < 0.01) {
+        const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+        await prisma.systemLog.deleteMany({ where: { timestamp: { lt: cutoff } } })
       }
+    } catch {
+      // DB write failure is silent — console already has the log
     }
   }
 
@@ -193,10 +161,6 @@ class Logger {
     this.log({ level: 'fatal', message, timestamp: new Date().toISOString(), ...ctx })
   }
 
-  /**
-   * ส่ง Email แจ้งเตือน — กระชับ, ไม่ throw stack trace
-   * count = จำนวนครั้งที่เกิด error เดียวกันในช่วง cooldown ที่ผ่านมา
-   */
   private async notifyEmail(entry: LogEntry, count: number): Promise<void> {
     const alertEmail = process.env.ALERT_EMAIL
     if (!alertEmail) return
@@ -206,17 +170,13 @@ class Logger {
     const user = process.env.SMTP_USER
     const pass = process.env.SMTP_PASS
     const fromEmail = process.env.EMAIL_FROM || user
-
     if (!host || !user || !pass) return
 
     const emoji = entry.level === 'fatal' ? '🔴' : '🟡'
     const appName = process.env.NEXT_PUBLIC_SITE_NAME || 'TechTrade'
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
-
     const countLabel = count > 1 ? ` (${count}x)` : ''
     const subject = `${emoji} [${appName}] ${entry.context || 'system'}: ${entry.message.substring(0, 60)}${countLabel}`
-
-    // Concise error — first 300 chars only, no stack trace
     const shortError = entry.error ? this.truncateError(entry.error, 300) : null
 
     const html = `
@@ -226,65 +186,24 @@ class Logger {
         </div>
         <div style="padding: 20px; background: #f9fafb; border: 1px solid #e5e7eb; border-top: none;">
           <table style="width: 100%; border-collapse: collapse; line-height: 1.8;">
-            <tr>
-              <td style="color: #6b7280; width: 110px; vertical-align: top;">Context</td>
-              <td style="font-weight: bold;">${entry.context || 'system'}</td>
-            </tr>
-            <tr>
-              <td style="color: #6b7280; vertical-align: top;">Message</td>
-              <td>${entry.message}</td>
-            </tr>
-            ${shortError ? `
-            <tr>
-              <td style="color: #6b7280; vertical-align: top;">Error</td>
-              <td style="color: #dc2626; font-family: monospace; font-size: 12px; word-break: break-word;">${shortError.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>
-            </tr>
-            ` : ''}
-            ${count > 1 ? `
-            <tr>
-              <td style="color: #6b7280; vertical-align: top;">ซ้ำ</td>
-              <td style="color: #f59e0b; font-weight: bold;">${count} ครั้งใน 5 นาทีที่ผ่านมา</td>
-            </tr>
-            ` : ''}
-            ${entry.userId ? `
-            <tr>
-              <td style="color: #6b7280; vertical-align: top;">User</td>
-              <td style="font-family: monospace; font-size: 12px;">${entry.userId}</td>
-            </tr>
-            ` : ''}
-            <tr>
-              <td style="color: #6b7280; vertical-align: top;">เวลา</td>
-              <td>${new Date(entry.timestamp).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}</td>
-            </tr>
+            <tr><td style="color:#6b7280;width:110px;">Context</td><td style="font-weight:bold;">${entry.context || 'system'}</td></tr>
+            <tr><td style="color:#6b7280;">Message</td><td>${entry.message}</td></tr>
+            ${shortError ? `<tr><td style="color:#6b7280;vertical-align:top;">Error</td><td style="color:#dc2626;font-family:monospace;font-size:12px;word-break:break-word;">${shortError.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td></tr>` : ''}
+            ${count > 1 ? `<tr><td style="color:#6b7280;">ซ้ำ</td><td style="color:#f59e0b;font-weight:bold;">${count} ครั้งใน 5 นาทีที่ผ่านมา</td></tr>` : ''}
+            ${entry.userId ? `<tr><td style="color:#6b7280;">User</td><td style="font-family:monospace;font-size:12px;">${entry.userId}</td></tr>` : ''}
+            <tr><td style="color:#6b7280;">เวลา</td><td>${new Date(entry.timestamp).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}</td></tr>
           </table>
-          ${appUrl ? `
-          <div style="margin-top: 16px;">
-            <a href="${appUrl}/admin/logs" style="display: inline-block; padding: 8px 20px; background: #111827; color: white; text-decoration: none; border-radius: 6px; font-size: 13px;">
-              ดู Logs เต็ม →
-            </a>
-          </div>
-          ` : ''}
+          ${appUrl ? `<div style="margin-top:16px;"><a href="${appUrl}/admin/logs" style="display:inline-block;padding:8px 20px;background:#111827;color:white;text-decoration:none;border-radius:6px;font-size:13px;">ดู Logs เต็ม →</a></div>` : ''}
         </div>
       </div>
     `
 
     try {
       const nodemailer = await import('nodemailer')
-      const transporter = nodemailer.createTransport({
-        host,
-        port,
-        secure: port === 465,
-        auth: { user, pass },
-      })
-
-      await transporter.sendMail({
-        from: `"${appName} Alert" <${fromEmail}>`,
-        to: alertEmail,
-        subject,
-        html,
-      })
+      const transporter = nodemailer.createTransport({ host, port, secure: port === 465, auth: { user, pass } })
+      await transporter.sendMail({ from: `"${appName} Alert" <${fromEmail}>`, to: alertEmail, subject, html })
     } catch {
-      // Silent fail — logger ไม่ควรทำให้ระบบพัง
+      // Silent
     }
   }
 }
