@@ -1,11 +1,11 @@
 // app/api/checkout/signal/route.ts
 //
 // Plans:
-//   1m  → 1 month,  0 bonus  (1  total)  @ basePriceSatang × 1.0
-//   3m  → 3 months, 1 bonus  (4  total)  @ basePriceSatang × 2.5
-//   6m  → 6 months, 2 bonus  (8  total)  @ basePriceSatang × 4.5
+//   1m  → 1 month,  0 bonus  (1  total)  @ basePriceSatang (system setting)
+//   3m  → 3 months, 1 bonus  (4  total)  @ ฿1,699 fixed
+//   6m  → 6 months, 2 bonus  (8  total)  @ ฿3,499 fixed
 //
-// Referral discount: ฿100 off any plan (first order only check stays for commission scope).
+// Referral discount: ฿100 off any plan.
 // Server is the source of truth — clients pass only plan id & paymentMethod.
 import { NextRequest, NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/jwt"
@@ -18,12 +18,14 @@ import { logger } from "@/lib/logger"
 import { PaymentMethod } from "@prisma/client"
 
 // ──────────────────────────────────────────────
-// Plan catalogue (price is relative to 1-month base)
+// Plan catalogue
+//   fixedSatang = null → use basePriceSatang from system settings
+//   fixedSatang = N    → hard-coded price (satang)
 // ──────────────────────────────────────────────
 const PLAN_CONFIGS = {
-  '1m': { months: 1, bonus: 0, factor: 1.0,   label: '1 เดือน' },
-  '3m': { months: 3, bonus: 1, factor: 2.5,   label: '3 เดือน + แถม 1 เดือน' },
-  '6m': { months: 6, bonus: 2, factor: 4.5,   label: '6 เดือน + แถม 2 เดือน' },
+  '1m': { months: 1, bonus: 0, fixedSatang: null,   label: '1 เดือน' },
+  '3m': { months: 3, bonus: 1, fixedSatang: 169900, label: '3 เดือน + แถม 1 เดือน' },
+  '6m': { months: 6, bonus: 2, fixedSatang: 349900, label: '6 เดือน + แถม 2 เดือน' },
 } as const
 
 type PlanId = keyof typeof PLAN_CONFIGS
@@ -32,9 +34,9 @@ function isValidPlanId(v: unknown): v is PlanId {
   return typeof v === 'string' && v in PLAN_CONFIGS
 }
 
-/** Compute plan price in satang (floor to whole baht). */
+/** Returns plan price in satang. 1m uses system setting; others are fixed. */
 function planPriceSatang(baseSatang: number, planId: PlanId): number {
-  return Math.floor(baseSatang * PLAN_CONFIGS[planId].factor / 100) * 100
+  return PLAN_CONFIGS[planId].fixedSatang ?? baseSatang
 }
 
 /** ฿100 referral discount — applied to any plan. */

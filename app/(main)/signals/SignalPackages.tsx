@@ -16,13 +16,14 @@ interface Plan {
   savingLabel?: string   // e.g. "ประหยัด ฿449/เดือน"
 }
 
-function buildPlans(baseBaht: number): Plan[] {
-  const p1 = Math.floor(baseBaht * 1.0)
-  const p3 = Math.floor(baseBaht * 2.5 / 100) * 100   // floor to nearest 100
-  const p6 = Math.floor(baseBaht * 4.5 / 100) * 100
+// Fixed prices matching server constants in route.ts
+const PLAN_3M_BAHT = 1699
+const PLAN_6M_BAHT = 3499
 
-  const perMonth3 = Math.round(p3 / 4)   // 4 total months
-  const perMonth6 = Math.round(p6 / 8)   // 8 total months
+function buildPlans(baseBaht: number): Plan[] {
+  // Total saving vs buying 1m plans repeatedly + value of bonus months
+  const saving3 = baseBaht * 4 - PLAN_3M_BAHT   // vs 4×1m
+  const saving6 = baseBaht * 8 - PLAN_6M_BAHT   // vs 8×1m
 
   return [
     {
@@ -30,7 +31,7 @@ function buildPlans(baseBaht: number): Plan[] {
       label: '1 เดือน',
       months: 1,
       bonus: 0,
-      priceBaht: p1,
+      priceBaht: baseBaht,
       highlight: false,
     },
     {
@@ -38,20 +39,20 @@ function buildPlans(baseBaht: number): Plan[] {
       label: '3 เดือน',
       months: 3,
       bonus: 1,
-      priceBaht: p3,
+      priceBaht: PLAN_3M_BAHT,
       badge: '⚡ แนะนำ',
       highlight: true,
-      savingLabel: `฿${perMonth3.toLocaleString()}/เดือน`,
+      savingLabel: saving3 > 0 ? `ประหยัด ฿${saving3.toLocaleString()}` : undefined,
     },
     {
       id: '6m',
       label: '6 เดือน',
       months: 6,
       bonus: 2,
-      priceBaht: p6,
+      priceBaht: PLAN_6M_BAHT,
       badge: '🔥 คุ้มสุด',
       highlight: false,
-      savingLabel: `฿${perMonth6.toLocaleString()}/เดือน`,
+      savingLabel: saving6 > 0 ? `ประหยัด ฿${saving6.toLocaleString()}` : undefined,
     },
   ]
 }
