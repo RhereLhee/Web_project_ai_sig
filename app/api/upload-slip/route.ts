@@ -249,7 +249,7 @@ export async function POST(request: NextRequest) {
     if (verification.status === 'VERIFIED') {
       try {
         const result = await activateOrder(order.id)
-        autoApproved = result.kind === 'ok' || result.kind === 'ok'
+        autoApproved = result.kind === 'ok'
         if (result.kind === 'ok') {
           autoApproved = true
           logger.info('Order auto-approved after EasySlip verification', {

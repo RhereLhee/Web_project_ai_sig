@@ -56,12 +56,16 @@ export async function GET(req: NextRequest) {
   const contextRaw = await prisma.systemLog.groupBy({
     by: ['context'],
     _count: { _all: true },
-    orderBy: { _count: { _all: 'desc' } },
-    take: 20,
+    orderBy: { context: 'asc' },
   })
   const byContext: Record<string, number> = {}
-  for (const r of contextRaw) {
-    if (r.context) byContext[r.context] = r._count._all
+  // Sort by count desc, take top 20
+  const sortedContext = contextRaw
+    .filter(r => r.context)
+    .sort((a, b) => b._count._all - a._count._all)
+    .slice(0, 20)
+  for (const r of sortedContext) {
+    byContext[r.context!] = r._count._all
   }
 
   // Format timestamps as ISO string for the client
