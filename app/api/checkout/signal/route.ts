@@ -91,10 +91,67 @@ export async function POST(request: NextRequest) {
     const discountSatang = hasReferral ? REFERRAL_DISCOUNT_SATANG : 0
     const finalAmountSatang = Math.max(originalPlanSatang - discountSatang, 100) // floor at ฿1
 
+    const totalMonths = plan.months + plan.bonus
+
+    // ── Reuse existing PENDING order for same user + plan (still valid) ──
+    // Prevents the slip amount from changing if the customer closes and reopens the modal.
+    const existingOrder = await prisma.order.findFirst({
+      where: {
+        userId: user.id,
+        orderType: "SIGNAL",
+        status: "PENDING",
+        expiresAt: { gt: new Date() },
+        metadata: { path: ["plan"], equals: planId },
+      },
+      orderBy: { createdAt: "desc" },
+    })
+
+    if (existingOrder) {
+      const expectedAmountBaht = existingOrder.expectedAmountSatang / 100
+      // Regenerate QR if missing
+      let qrCodeData = existingOrder.qrCodeData
+      if (!qrCodeData) {
+        try {
+          const qrPayload = generatePayload(PROMPTPAY_CONFIG.id, { amount: expectedAmountBaht })
+          qrCodeData = await generateQRCode(qrPayload)
+          if (qrCodeData) {
+            await prisma.order.update({ where: { id: existingOrder.id }, data: { qrCodeData } })
+          }
+        } catch (err) {
+          logger.error("QR regeneration error", { context: "payment", error: err })
+        }
+      }
+      const meta = existingOrder.metadata as Record<string, unknown>
+      return NextResponse.json({
+        success: true,
+        orderNumber: existingOrder.orderNumber,
+        orderId: existingOrder.id,
+        finalAmount: existingOrder.expectedAmountSatang,
+        finalPrice: expectedAmountBaht,
+        amountSuffix: existingOrder.amountSuffix,
+        expiresAt: existingOrder.expiresAt,
+        qrCodeData,
+        paymentMethod: existingOrder.paymentMethod,
+        promptPayId: PROMPTPAY_CONFIG.id,
+        promptPayName: PROMPTPAY_CONFIG.name,
+        discount: discountSatang > 0 ? { satang: discountSatang, baht: discountSatang / 100 } : null,
+        plan: {
+          id: planId,
+          label: plan.label,
+          tier: "VIP",
+          months: plan.months,
+          bonus: plan.bonus,
+          totalMonths,
+          originalPriceSatang: originalPlanSatang,
+          priceSatang: finalAmountSatang,
+          priceBaht: finalAmountSatang / 100,
+        },
+        reused: true,
+      })
+    }
+
     const { randomBytes } = await import("crypto")
     const orderNumber = `SIG-${Date.now()}-${randomBytes(4).toString("hex").toUpperCase()}`
-
-    const totalMonths = plan.months + plan.bonus
 
     const { order, expectedAmountBaht } = await prisma.$transaction(async (tx) => {
       const payFields = await buildOrderPaymentFields(tx, finalAmountSatang)
