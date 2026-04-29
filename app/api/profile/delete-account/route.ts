@@ -14,7 +14,7 @@
 // Financial records (orders, commissions, withdrawals) are intentionally kept.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUser } from '@/lib/jwt'
+import { getCurrentUser, clearAuthCookies } from '@/lib/jwt'
 import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
 import { logger } from '@/lib/logger'
@@ -102,6 +102,7 @@ export async function DELETE(req: NextRequest) {
       metadata: { reparentedTo: user.referredById ?? 'null (root)' },
     })
 
+    await clearAuthCookies()
     return NextResponse.json({ success: true, message: 'ลบบัญชีเรียบร้อยแล้ว' })
   } catch (error) {
     logger.error('delete-account error', { context: 'auth', error })

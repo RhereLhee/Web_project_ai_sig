@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
     }),
     prisma.systemLog.groupBy({
       by: ['level'],
-      _count: { _all: true },
+      _count: { id: true },
     }),
   ])
 
@@ -48,20 +48,19 @@ export async function GET(req: NextRequest) {
   const byLevel: Record<string, number> = {}
   let total = 0
   for (const r of statsRaw) {
-    byLevel[r.level] = r._count._all
-    total += r._count._all
+    byLevel[r.level] = r._count.id
+    total += r._count.id
   }
 
-  // Context stats (separate query — only top contexts)
+  // Context stats (separate query — sort in memory, Prisma 5 doesn't support _all in orderBy)
   const contextRaw = await prisma.systemLog.groupBy({
     by: ['context'],
-    _count: { _all: true },
-    orderBy: { _count: { _all: 'desc' } },
-    take: 20,
+    _count: { id: true },
   })
+  contextRaw.sort((a, b) => b._count.id - a._count.id)
   const byContext: Record<string, number> = {}
-  for (const r of contextRaw) {
-    if (r.context) byContext[r.context] = r._count._all
+  for (const r of contextRaw.slice(0, 20)) {
+    if (r.context) byContext[r.context] = r._count.id
   }
 
   // Format timestamps as ISO string for the client
