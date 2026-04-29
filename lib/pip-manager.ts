@@ -568,45 +568,85 @@ class PipManager {
       const existing = document.getElementById('pip-overlay')
       if (existing) existing.remove()
 
+      const mobile = this.isMobile()
+
       // สร้าง overlay container
       this.overlayContainer = document.createElement('div')
       this.overlayContainer.id = 'pip-overlay'
       this.overlayContainer.setAttribute('data-pip-manager', 'overlay')
-      this.overlayContainer.style.cssText = `
-        position: fixed;
-        bottom: 80px;
-        right: 8px;
-        width: 280px;
-        height: 200px;
-        z-index: 9999;
-        border-radius: 12px;
-        overflow: hidden;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-        border: 2px solid rgba(0,228,118,0.3);
-        touch-action: none;
-        transition: transform 0.2s ease;
-      `
+
+      if (mobile) {
+        // Mobile: full-screen overlay
+        this.overlayContainer.style.cssText = `
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100dvw;
+          height: 100dvh;
+          z-index: 99999;
+          overflow: hidden;
+          background: #0a0a0a;
+          touch-action: none;
+        `
+      } else {
+        // Desktop: small overlay
+        this.overlayContainer.style.cssText = `
+          position: fixed;
+          bottom: 80px;
+          right: 8px;
+          width: 280px;
+          height: 200px;
+          z-index: 9999;
+          border-radius: 12px;
+          overflow: hidden;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+          border: 2px solid rgba(0,228,118,0.3);
+          touch-action: none;
+          transition: transform 0.2s ease;
+        `
+      }
 
       // ปุ่มปิด
       const closeBtn = document.createElement('button')
-      closeBtn.style.cssText = `
-        position: absolute;
-        top: 4px;
-        right: 4px;
-        z-index: 10000;
-        width: 24px;
-        height: 24px;
-        border-radius: 50%;
-        background: rgba(0,0,0,0.7);
-        color: white;
-        border: none;
-        font-size: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-      `
-      closeBtn.textContent = ''
+      if (mobile) {
+        closeBtn.style.cssText = `
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          z-index: 100000;
+          width: 36px;
+          height: 36px;
+          border-radius: 50%;
+          background: rgba(0,0,0,0.75);
+          color: white;
+          border: 1px solid rgba(255,255,255,0.2);
+          font-size: 18px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          line-height: 1;
+        `
+      } else {
+        closeBtn.style.cssText = `
+          position: absolute;
+          top: 4px;
+          right: 4px;
+          z-index: 10000;
+          width: 24px;
+          height: 24px;
+          border-radius: 50%;
+          background: rgba(0,0,0,0.7);
+          color: white;
+          border: none;
+          font-size: 14px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+        `
+      }
+      closeBtn.textContent = '✕'
       closeBtn.addEventListener('click', () => this.stop())
 
       // สร้าง canvas
@@ -620,8 +660,10 @@ class PipManager {
       this.overlayContainer.appendChild(closeBtn)
       document.body.appendChild(this.overlayContainer)
 
-      // ลาก overlay ได้ (touch drag)
-      this.setupDrag(this.overlayContainer)
+      // ลาก overlay ได้เฉพาะ desktop (mobile = full-screen ไม่ต้องลาก)
+      if (!mobile) {
+        this.setupDrag(this.overlayContainer)
+      }
 
       this.isActive = true
       this.notifyStateListeners(true)
@@ -789,13 +831,17 @@ class PipManager {
     ctx.fillStyle = COLORS.background
     ctx.fillRect(0, 0, width, height)
 
-    // Draw header
-    this.drawHeader(ctx, width)
+    // Mobile slim mode: no global header, full chart grid, no price axis
+    const slim = this.pipMode === 'popup' && this.isMobile()
+
+    if (!slim) {
+      this.drawHeader(ctx, width)
+    }
 
     // Draw 6 charts in 3x2 grid
     const chartWidth = width / 3
-    const chartHeight = (height - 40) / 2
-    const headerHeight = 40
+    const headerHeight = slim ? 0 : 40
+    const chartHeight = (height - headerHeight) / 2
 
     SYMBOLS.forEach((symbol, index) => {
       const col = index % 3
@@ -803,8 +849,18 @@ class PipManager {
       const x = col * chartWidth
       const y = headerHeight + row * chartHeight
 
-      this.drawChart(ctx, symbol, x, y, chartWidth, chartHeight, index)
+      this.drawChart(ctx, symbol, x, y, chartWidth, chartHeight, index, slim)
     })
+  }
+
+  private formatTime(seconds: number): string {
+    const m = Math.floor(seconds / 60)
+    const s = seconds % 60
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  }
+
+  private isMobile(): boolean {
+    return typeof window !== 'undefined' && window.innerWidth < 768
   }
 
   private drawHeader(ctx: CanvasRenderingContext2D, width: number): void {
@@ -818,11 +874,11 @@ class PipManager {
     ctx.textAlign = 'left'
     ctx.fillText('TechTrade Signal', 10, 26)
 
-    // Countdown
+    // Countdown — MM:SS format same as web
     ctx.textAlign = 'right'
     ctx.font = 'bold 20px monospace'
     ctx.fillStyle = this.globalCountdown <= 10 ? COLORS.down : '#FFFFFF'
-    ctx.fillText(`${this.globalCountdown}s`, width - 10, 28)
+    ctx.fillText(this.formatTime(this.globalCountdown), width - 10, 28)
   }
 
   private drawChart(
@@ -832,38 +888,50 @@ class PipManager {
     offsetY: number,
     width: number,
     height: number,
-    index: number
+    index: number,
+    slim = false
   ): void {
     const data = this.symbolData[symbol]
     const config = this.symbolConfigs[symbol]
     const displayName = DISPLAY_NAMES[index]
+    const countdown = (this.symbolData[symbol] as any)?.countdown ?? this.globalCountdown
 
-    // Symbol header
+    // ── Per-chart header bar ──
+    const chartHeaderH = slim ? 28 : 20
+
     ctx.fillStyle = COLORS.header
-    ctx.fillRect(offsetX, offsetY, width, 20)
+    ctx.fillRect(offsetX, offsetY, width, chartHeaderH)
 
-    ctx.fillStyle = '#FFFFFF'
-    ctx.font = 'bold 11px sans-serif'
+    // Pair name — top left, larger on slim/mobile
+    ctx.fillStyle = slim ? '#00E676' : '#FFFFFF'
+    ctx.font = slim ? 'bold 15px sans-serif' : 'bold 11px sans-serif'
     ctx.textAlign = 'left'
-    ctx.fillText(displayName, offsetX + 5, offsetY + 14)
+    ctx.fillText(displayName, offsetX + 5, offsetY + (slim ? 20 : 14))
 
-    // Status indicator
-    if (config?.enabled === false) {
-      ctx.fillStyle = COLORS.down
-      ctx.fillText('', offsetX + width - 20, offsetY + 14)
-    }
-
-    // Active signal indicator
-    if (data?.active_signal) {
-      const isCall = data.active_signal.signal === 1 || data.active_signal.signal_type === 'CALL'
-      ctx.fillStyle = isCall ? COLORS.callArrow : COLORS.putArrow
-      ctx.font = 'bold 12px sans-serif'
-      ctx.fillText(isCall ? '' : '', offsetX + width - 35, offsetY + 14)
+    if (slim) {
+      // Timer — top right of each chart (MM:SS format)
+      ctx.fillStyle = countdown <= 10 ? COLORS.down : '#AAAAAA'
+      ctx.font = 'bold 13px monospace'
+      ctx.textAlign = 'right'
+      ctx.fillText(this.formatTime(countdown), offsetX + width - 5, offsetY + 20)
+    } else {
+      // Active signal indicator (desktop)
+      if (config?.enabled === false) {
+        ctx.fillStyle = COLORS.down
+        ctx.fillText('●', offsetX + width - 20, offsetY + 14)
+      }
+      if (data?.active_signal) {
+        const isCall = data.active_signal.signal === 1 || data.active_signal.signal_type === 'CALL'
+        ctx.fillStyle = isCall ? COLORS.callArrow : COLORS.putArrow
+        ctx.font = 'bold 12px sans-serif'
+        ctx.textAlign = 'right'
+        ctx.fillText(isCall ? '▲' : '▼', offsetX + width - 8, offsetY + 14)
+      }
     }
 
     // Adjust for header
-    offsetY += 20
-    height -= 20
+    offsetY += chartHeaderH
+    height -= chartHeaderH
 
     if (!data || !data.candles || data.candles.length === 0) {
       ctx.fillStyle = COLORS.text
@@ -888,7 +956,11 @@ class PipManager {
     minPrice -= pricePadding
     maxPrice += pricePadding
 
-    const margin = { top: 5, bottom: 5, left: 5, right: 50 }
+    // slim = no price axis → full width for candles
+    const margin = slim
+      ? { top: 4, bottom: 4, left: 4, right: 4 }
+      : { top: 5, bottom: 5, left: 5, right: 50 }
+
     const chartWidth = width - margin.left - margin.right
     const chartHeight = height - margin.top - margin.bottom
 
@@ -905,23 +977,25 @@ class PipManager {
       return offsetX + margin.left + startOffset + (i + 0.5) * barTotalWidth
     }
 
-    // Y-axis labels
-    const decimals = symbol.includes('JPY') ? 3 : 5
-    ctx.fillStyle = COLORS.axisText
-    ctx.font = '10px monospace'
-    ctx.textAlign = 'left'
+    if (!slim) {
+      // Y-axis labels + grid lines (desktop only)
+      const decimals = symbol.includes('JPY') ? 3 : 5
+      ctx.fillStyle = COLORS.axisText
+      ctx.font = '10px monospace'
+      ctx.textAlign = 'left'
 
-    for (let i = 0; i <= 4; i++) {
-      const price = minPrice + (maxPrice - minPrice) * (i / 4)
-      const y = priceToY(price)
-      ctx.fillText(price.toFixed(decimals), offsetX + width - margin.right + 3, y + 3)
+      for (let i = 0; i <= 4; i++) {
+        const price = minPrice + (maxPrice - minPrice) * (i / 4)
+        const y = priceToY(price)
+        ctx.fillText(price.toFixed(decimals), offsetX + width - margin.right + 3, y + 3)
 
-      ctx.strokeStyle = COLORS.grid
-      ctx.lineWidth = 0.5
-      ctx.beginPath()
-      ctx.moveTo(offsetX + margin.left, y)
-      ctx.lineTo(offsetX + width - margin.right, y)
-      ctx.stroke()
+        ctx.strokeStyle = COLORS.grid
+        ctx.lineWidth = 0.5
+        ctx.beginPath()
+        ctx.moveTo(offsetX + margin.left, y)
+        ctx.lineTo(offsetX + width - margin.right, y)
+        ctx.stroke()
+      }
     }
 
     // Draw candles
@@ -931,15 +1005,13 @@ class PipManager {
       const isUp = c.close >= c.open
       const color = isUp ? COLORS.up : COLORS.down
 
-      // Wick
       ctx.strokeStyle = color
-      ctx.lineWidth = 1
+      ctx.lineWidth = slim ? 1.5 : 1
       ctx.beginPath()
       ctx.moveTo(x, priceToY(c.high))
       ctx.lineTo(x, priceToY(c.low))
       ctx.stroke()
 
-      // Body
       const bodyTop = Math.min(priceToY(c.open), priceToY(c.close))
       const bodyBottom = Math.max(priceToY(c.open), priceToY(c.close))
       const bodyHeight = Math.max(bodyBottom - bodyTop, 1)
@@ -948,24 +1020,27 @@ class PipManager {
       ctx.fillRect(x - barBodyWidth / 2, bodyTop, barBodyWidth, bodyHeight)
     }
 
-    // Current price line
-    if (candles.length > 0) {
-      const lastCandle = candles[candles.length - 1]
-      const currentY = priceToY(lastCandle.close)
+    if (!slim) {
+      // Current price line + label (desktop only)
+      if (candles.length > 0) {
+        const lastCandle = candles[candles.length - 1]
+        const decimals = symbol.includes('JPY') ? 3 : 5
+        const currentY = priceToY(lastCandle.close)
 
-      ctx.strokeStyle = lastCandle.close >= lastCandle.open ? COLORS.up : COLORS.down
-      ctx.lineWidth = 1
-      ctx.setLineDash([3, 3])
-      ctx.beginPath()
-      ctx.moveTo(offsetX + margin.left, currentY)
-      ctx.lineTo(offsetX + width - margin.right, currentY)
-      ctx.stroke()
-      ctx.setLineDash([])
+        ctx.strokeStyle = lastCandle.close >= lastCandle.open ? COLORS.up : COLORS.down
+        ctx.lineWidth = 1
+        ctx.setLineDash([3, 3])
+        ctx.beginPath()
+        ctx.moveTo(offsetX + margin.left, currentY)
+        ctx.lineTo(offsetX + width - margin.right, currentY)
+        ctx.stroke()
+        ctx.setLineDash([])
 
-      // Price label
-      ctx.fillStyle = lastCandle.close >= lastCandle.open ? COLORS.up : COLORS.down
-      ctx.font = 'bold 9px monospace'
-      ctx.fillText(`${lastCandle.close.toFixed(decimals)}`, offsetX + width - margin.right + 2, currentY - 5)
+        ctx.fillStyle = lastCandle.close >= lastCandle.open ? COLORS.up : COLORS.down
+        ctx.font = 'bold 9px monospace'
+        ctx.textAlign = 'left'
+        ctx.fillText(`${lastCandle.close.toFixed(decimals)}`, offsetX + width - margin.right + 2, currentY - 5)
+      }
     }
 
     // Draw signals
