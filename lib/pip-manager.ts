@@ -315,15 +315,19 @@ class PipManager {
       }
     }
 
-    // ลองตามลำดับ: HLS Canvas PiP Overlay
+    // ลอง HLS ก่อน (ทุก platform)
     const hlsSuccess = await this.startHlsPip()
     if (hlsSuccess) return
 
-    // Canvas captureStream PiP (Desktop Chrome/Edge)
-    const nativeSuccess = await this.startCanvasPip()
-    if (nativeSuccess) return
+    // Canvas captureStream PiP — Desktop เท่านั้น
+    // บน mobile, Android Chrome ตอบ pictureInPictureEnabled=true
+    // แต่ native PiP กับ canvas stream มักจะ enter→leave ทันที ทำให้กระพริบ
+    if (!this.isMobile()) {
+      const nativeSuccess = await this.startCanvasPip()
+      if (nativeSuccess) return
+    }
 
-    // Overlay fallback (ลอยในเว็บเท่านั้น)
+    // Overlay (popup) fallback — ลอยในเว็บ
     this.pipMode = 'popup'
     await this.startPopupPip()
   }
@@ -592,6 +596,8 @@ class PipManager {
   // ============================================
 
   private overlayContainer: HTMLDivElement | null = null
+  private overlayW = 0
+  private overlayH = 0
 
   private async startPopupPip(): Promise<void> {
     try {
@@ -651,11 +657,16 @@ class PipManager {
       closeBtn.textContent = '✕'
       closeBtn.addEventListener('click', (e) => { e.stopPropagation(); this.stop() })
 
-      // สร้าง canvas
+      // เก็บ dimensions — ใช้อ้างอิงใน drawPipCanvas ทุก frame โดยไม่ query DOM
+      this.overlayW = overlayW
+      this.overlayH = overlayH
+
+      // สร้าง canvas — set size ครั้งเดียว (CSS pixel) ไม่ resize ทุก frame
+      // CSS width/height 100% จะ scale visual ให้พอดี overlay container
       this.popupCanvas = document.createElement('canvas')
-      this.popupCanvas.width = PIP_WIDTH
-      this.popupCanvas.height = PIP_HEIGHT
-      this.popupCanvas.style.cssText = 'width: 100%; height: 100%; display: block;'
+      this.popupCanvas.width = overlayW
+      this.popupCanvas.height = overlayH
+      this.popupCanvas.style.cssText = 'width: 100%; height: 100%; display: block; image-rendering: pixelated;'
       this.popupCtx = this.popupCanvas.getContext('2d', { alpha: false })
 
       this.overlayContainer.appendChild(this.popupCanvas)
@@ -742,6 +753,8 @@ class PipManager {
         this.overlayContainer.parentNode.removeChild(this.overlayContainer)
       }
       this.overlayContainer = null
+      this.overlayW = 0
+      this.overlayH = 0
 
       this.popupCanvas = null
       this.popupCtx = null
@@ -828,25 +841,13 @@ class PipManager {
 
     if (!ctx) return
 
-    // Resize overlay canvas ตามขนาด container
-    if (this.pipMode === 'popup' && this.popupCanvas && this.overlayContainer) {
-      const w = this.overlayContainer.clientWidth
-      const h = this.overlayContainer.clientHeight
-      if (w === 0 || h === 0) return // รอจน layout พร้อม
-      const dpr = window.devicePixelRatio || 1
-      const targetW = Math.round(w * dpr)
-      const targetH = Math.round(h * dpr)
-      if (this.popupCanvas.width !== targetW || this.popupCanvas.height !== targetH) {
-        this.popupCanvas.width = targetW
-        this.popupCanvas.height = targetH
-        ctx.scale(dpr, dpr)
-      }
-    }
-    const width = this.pipMode === 'popup' && this.overlayContainer
-      ? this.overlayContainer.clientWidth
+    // ใช้ dimensions ที่เก็บไว้ตอนสร้าง — ไม่ query DOM ทุก frame
+    // canvas size ถูก set ครั้งเดียวตอน startPopupPip() แล้ว
+    const width = this.pipMode === 'popup'
+      ? (this.overlayW || PIP_WIDTH)
       : this.canvas?.width || PIP_WIDTH
-    const height = this.pipMode === 'popup' && this.overlayContainer
-      ? this.overlayContainer.clientHeight
+    const height = this.pipMode === 'popup'
+      ? (this.overlayH || PIP_HEIGHT)
       : this.canvas?.height || PIP_HEIGHT
 
     // Clear canvas
