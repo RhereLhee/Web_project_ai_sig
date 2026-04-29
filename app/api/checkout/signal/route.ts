@@ -1,13 +1,12 @@
 // app/api/checkout/signal/route.ts
 //
-// Locked pricing model:
-//   - Single VIP tier @ VIP_PRICE_SATANG (default 59900 = ฿599) for 1 month
-//   - Referred users get ฿100 discount → pay ฿499 (REFERRAL_DISCOUNT_SATANG = 10000).
-//   - Price is fetched from SystemSetting via getVipPriceSatang() so admin can
-//     adjust without redeploy. Server is the source of truth — clients NEVER
-//     pass price; they only request "create me a VIP order".
-//   - Affiliate pool computed at approve time (30% of finalAmount).
-//   - First-payment flag drives commission scope (renewals do not pay commission).
+// Plans:
+//   1m  → 1 month,  0 bonus  (1  total)  @ basePriceSatang × 1.0
+//   3m  → 3 months, 1 bonus  (4  total)  @ basePriceSatang × 2.5
+//   6m  → 6 months, 2 bonus  (8  total)  @ basePriceSatang × 4.5
+//
+// Referral discount: ฿100 off any plan (first order only check stays for commission scope).
+// Server is the source of truth — clients pass only plan id & paymentMethod.
 import { NextRequest, NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/jwt"
 import { prisma } from "@/lib/prisma"
@@ -18,11 +17,27 @@ import { getVipPriceSatang } from "@/lib/system-settings"
 import { logger } from "@/lib/logger"
 import { PaymentMethod } from "@prisma/client"
 
-/** Months of access granted per VIP order. Single tier, 1 month. */
-const VIP_DURATION_MONTHS = 1
-const VIP_BONUS_MONTHS = 0
+// ──────────────────────────────────────────────
+// Plan catalogue (price is relative to 1-month base)
+// ──────────────────────────────────────────────
+const PLAN_CONFIGS = {
+  '1m': { months: 1, bonus: 0, factor: 1.0,   label: '1 เดือน' },
+  '3m': { months: 3, bonus: 1, factor: 2.5,   label: '3 เดือน + แถม 1 เดือน' },
+  '6m': { months: 6, bonus: 2, factor: 4.5,   label: '6 เดือน + แถม 2 เดือน' },
+} as const
 
-/** ฿100 discount for users referred by an affiliate link. */
+type PlanId = keyof typeof PLAN_CONFIGS
+
+function isValidPlanId(v: unknown): v is PlanId {
+  return typeof v === 'string' && v in PLAN_CONFIGS
+}
+
+/** Compute plan price in satang (floor to whole baht). */
+function planPriceSatang(baseSatang: number, planId: PlanId): number {
+  return Math.floor(baseSatang * PLAN_CONFIGS[planId].factor / 100) * 100
+}
+
+/** ฿100 referral discount — applied to any plan. */
 const REFERRAL_DISCOUNT_SATANG = 10000
 
 const VALID_PAYMENT_METHODS: PaymentMethod[] = ["QR_CODE", "BANK_APP", "CREDIT_CARD"]
@@ -33,6 +48,9 @@ function coercePaymentMethod(input: unknown): PaymentMethod {
   return "QR_CODE"
 }
 
+// ──────────────────────────────────────────────
+// POST — create order
+// ──────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
     if (!validateCSRF(request)) {
@@ -46,6 +64,8 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => ({}))
     const paymentMethod = coercePaymentMethod(body?.paymentMethod)
+    const planId: PlanId = isValidPlanId(body?.plan) ? body.plan : '1m'
+    const plan = PLAN_CONFIGS[planId]
 
     const user = await prisma.user.findUnique({
       where: { id: payload.userId },
@@ -55,26 +75,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    // Server-side price (never trust client).
+    // Server-side base price (never trust client).
     const basePriceSatang = await getVipPriceSatang()
     if (!Number.isInteger(basePriceSatang) || basePriceSatang <= 0) {
       return NextResponse.json({ error: "ราคา VIP ไม่ถูกต้อง" }, { status: 500 })
     }
 
-    // Referral discount: ฿100 off if the user was referred by someone.
+    // Plan price before discount.
+    const originalPlanSatang = planPriceSatang(basePriceSatang, planId)
+
+    // ฿100 referral discount for users who signed up via a referral link.
     const hasReferral = !!user.referredById
     const discountSatang = hasReferral ? REFERRAL_DISCOUNT_SATANG : 0
-    const finalAmountSatang = basePriceSatang - discountSatang
+    const finalAmountSatang = Math.max(originalPlanSatang - discountSatang, 100) // floor at ฿1
 
-    // Order number — Date.now() + crypto bytes is collision-safe enough for our scale.
     const { randomBytes } = await import("crypto")
     const orderNumber = `SIG-${Date.now()}-${randomBytes(4).toString("hex").toUpperCase()}`
 
-    // Transaction: only DB work — no external calls (QR generation happens outside).
+    const totalMonths = plan.months + plan.bonus
+
     const { order, expectedAmountBaht } = await prisma.$transaction(async (tx) => {
       const payFields = await buildOrderPaymentFields(tx, finalAmountSatang)
       const firstPayment = await isFirstPaymentForBuyer(tx, user.id)
-
       const expectedBaht = payFields.expectedAmountSatang / 100
 
       const created = await tx.order.create({
@@ -82,9 +104,8 @@ export async function POST(request: NextRequest) {
           orderNumber,
           userId: user.id,
           orderType: "SIGNAL",
-          originalAmount: basePriceSatang,
+          originalAmount: originalPlanSatang,
           discountAmount: discountSatang,
-          // Affiliate pool is computed dynamically at approve time (30% of finalAmount).
           affiliatePool: 0,
           finalAmount: finalAmountSatang,
           expectedAmountSatang: payFields.expectedAmountSatang,
@@ -96,9 +117,10 @@ export async function POST(request: NextRequest) {
           qrCodeData: null,
           metadata: {
             tier: "VIP",
-            months: VIP_DURATION_MONTHS,
-            bonus: VIP_BONUS_MONTHS,
-            totalMonths: VIP_DURATION_MONTHS + VIP_BONUS_MONTHS,
+            plan: planId,
+            months: plan.months,
+            bonus: plan.bonus,
+            totalMonths,
             hasReferral,
           },
         },
@@ -106,8 +128,6 @@ export async function POST(request: NextRequest) {
       return { order: created, expectedAmountBaht: expectedBaht }
     }, { timeout: 15_000, maxWait: 10_000 })
 
-    // Generate QR code OUTSIDE the transaction so it never races the 5-second
-    // Prisma transaction timeout. The order is already committed at this point.
     let qrCodeData: string | null = null
     try {
       const qrPayload = generatePayload(PROMPTPAY_CONFIG.id, { amount: expectedAmountBaht })
@@ -123,7 +143,6 @@ export async function POST(request: NextRequest) {
       success: true,
       orderNumber: order.orderNumber,
       orderId: order.id,
-      // EXACT expected amount (with the 1..99 satang suffix). Client must show this.
       finalAmount: order.expectedAmountSatang,
       finalPrice: expectedAmountBaht,
       amountSuffix: order.amountSuffix,
@@ -134,11 +153,13 @@ export async function POST(request: NextRequest) {
       promptPayName: PROMPTPAY_CONFIG.name,
       discount: discountSatang > 0 ? { satang: discountSatang, baht: discountSatang / 100 } : null,
       plan: {
+        id: planId,
+        label: plan.label,
         tier: "VIP",
-        months: VIP_DURATION_MONTHS,
-        bonus: VIP_BONUS_MONTHS,
-        totalMonths: VIP_DURATION_MONTHS + VIP_BONUS_MONTHS,
-        originalPriceSatang: basePriceSatang,
+        months: plan.months,
+        bonus: plan.bonus,
+        totalMonths,
+        originalPriceSatang: originalPlanSatang,
         priceSatang: finalAmountSatang,
         priceBaht: finalAmountSatang / 100,
       },
@@ -149,19 +170,25 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET — public price endpoint (used by misc UI surfaces that need the current VIP price).
+// ──────────────────────────────────────────────
+// GET — public price endpoint
+// ──────────────────────────────────────────────
 export async function GET() {
-  const priceSatang = await getVipPriceSatang()
-  return NextResponse.json({
-    plan: {
-      tier: "VIP",
-      months: VIP_DURATION_MONTHS,
-      bonus: VIP_BONUS_MONTHS,
-      totalMonths: VIP_DURATION_MONTHS + VIP_BONUS_MONTHS,
-      priceSatang,
-      priceBaht: priceSatang / 100,
+  const baseSatang = await getVipPriceSatang()
+  const plans = Object.entries(PLAN_CONFIGS).map(([id, cfg]) => {
+    const price = planPriceSatang(baseSatang, id as PlanId)
+    return {
+      id,
+      label: cfg.label,
+      months: cfg.months,
+      bonus: cfg.bonus,
+      totalMonths: cfg.months + cfg.bonus,
+      priceSatang: price,
+      priceBaht: price / 100,
+      perMonthBaht: Math.round(price / (cfg.months + cfg.bonus) / 100),
       referralDiscountSatang: REFERRAL_DISCOUNT_SATANG,
       referralDiscountBaht: REFERRAL_DISCOUNT_SATANG / 100,
-    },
+    }
   })
+  return NextResponse.json({ plans })
 }
