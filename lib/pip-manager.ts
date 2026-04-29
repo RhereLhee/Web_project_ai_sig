@@ -298,6 +298,23 @@ class PipManager {
   async start(): Promise<void> {
     if (this.isActive) return
 
+    // Sync ข้อมูลล่าสุดจาก signalService ก่อนเปิด PiP
+    // ป้องกัน popup render loop วาด "Loading..." เพราะ listener ยังไม่ fire
+    const currentData = signalService.getData()
+    if (currentData) {
+      if (currentData.symbols) this.symbolData = currentData.symbols
+      if (currentData.countdown !== undefined) {
+        this.globalCountdown = currentData.stale ? 0 : currentData.countdown
+      } else {
+        for (const sym of Object.values(currentData.symbols || {})) {
+          if (sym.countdown !== undefined) {
+            this.globalCountdown = currentData.stale ? 0 : sym.countdown
+            break
+          }
+        }
+      }
+    }
+
     // ลองตามลำดับ: HLS Canvas PiP Overlay
     const hlsSuccess = await this.startHlsPip()
     if (hlsSuccess) return
