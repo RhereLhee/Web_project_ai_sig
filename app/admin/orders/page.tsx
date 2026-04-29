@@ -15,6 +15,7 @@ export const revalidate = 0
 import { prisma } from '@/lib/prisma'
 import Link from 'next/link'
 import { ApproveOrderButton } from './ApproveOrderButton'
+import { RetryCommissionButton } from './RetryCommissionButton'
 import type { Prisma } from '@prisma/client'
 
 interface Props {
@@ -75,6 +76,7 @@ async function getOrders(
             senderBank: true,
           },
         },
+        affiliatePayment: { select: { id: true } },
       },
       orderBy: { createdAt: 'desc' },
       take,
@@ -417,14 +419,25 @@ export default async function AdminOrdersPage({ searchParams }: Props) {
                     <span className="text-sm text-gray-400">รอลูกค้าอัพโหลดสลิป</span>
                   )}
                   {order.status === 'PAID' && (
-                    <span className="text-sm text-emerald-600 font-medium">
-                      อนุมัติแล้ว
-                      {order.paidAt && (
-                        <span className="text-gray-500 ml-2 font-normal">
-                          {new Date(order.paidAt).toLocaleString('th-TH')}
+                    <div className="flex items-center gap-3 flex-wrap w-full">
+                      <span className="text-sm text-emerald-600 font-medium">
+                        อนุมัติแล้ว
+                        {order.paidAt && (
+                          <span className="text-gray-500 ml-2 font-normal">
+                            {new Date(order.paidAt).toLocaleString('th-TH')}
+                          </span>
+                        )}
+                      </span>
+                      {/* Show retry button if: first payment + no commission distributed yet */}
+                      {order.isFirstPayment && !order.affiliatePayment && (
+                        <RetryCommissionButton orderId={order.id} />
+                      )}
+                      {order.isFirstPayment && order.affiliatePayment && (
+                        <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">
+                          Commission แจกแล้ว
                         </span>
                       )}
-                    </span>
+                    </div>
                   )}
                 </div>
               </div>
