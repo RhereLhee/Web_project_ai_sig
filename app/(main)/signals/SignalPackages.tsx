@@ -46,8 +46,8 @@ export function SignalPackages({ vipPriceBaht, hasReferral = false }: SignalPack
     <>
       {/* Referral notice */}
       {hasReferral && (
-        <div className="mb-5 px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600">
-          ส่วนลดลิงก์แนะนำ <span className="font-semibold text-gray-900">฿{REFERRAL_DISCOUNT_BAHT}</span> ถูกหักออกจากราคาด้านล่างแล้ว
+        <div className="mb-5 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800">
+          ส่วนลดลิงก์แนะนำ <span className="font-semibold">฿{REFERRAL_DISCOUNT_BAHT}</span> ถูกหักออกจากราคาด้านล่างแล้ว
         </div>
       )}
 
@@ -66,11 +66,11 @@ export function SignalPackages({ vipPriceBaht, hasReferral = false }: SignalPack
             <div
               key={plan.id}
               onClick={() => setSelectedPlan(plan.id)}
-              className="relative flex flex-col rounded-xl border border-gray-200 bg-white p-5 cursor-pointer hover:border-gray-400 hover:shadow-sm transition-all"
+              className="relative flex flex-col rounded-xl border border-emerald-200 bg-white p-5 cursor-pointer hover:border-emerald-400 hover:shadow-sm transition-all"
             >
               {/* Discount badge */}
               {hasDiscount && (
-                <span className="absolute top-4 right-4 text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                <span className="absolute top-4 right-4 text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
                   -{savePct}%
                 </span>
               )}
@@ -105,7 +105,7 @@ export function SignalPackages({ vipPriceBaht, hasReferral = false }: SignalPack
               <div className="flex-1" />
 
               {/* CTA */}
-              <button className="w-full py-2.5 rounded-lg text-sm font-medium bg-gray-900 hover:bg-gray-700 text-white transition-colors">
+              <button className="w-full py-2.5 rounded-lg text-sm font-medium bg-gradient-to-r from-emerald-500 to-cyan-600 hover:from-emerald-600 hover:to-cyan-700 text-white transition-colors">
                 เลือก
               </button>
             </div>
@@ -117,7 +117,7 @@ export function SignalPackages({ vipPriceBaht, hasReferral = false }: SignalPack
       <ul className="mt-6 grid sm:grid-cols-2 gap-x-6 gap-y-2">
         {FEATURES.map((f) => (
           <li key={f} className="flex items-center gap-2 text-sm text-gray-500">
-            <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <svg className="w-4 h-4 text-emerald-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
             </svg>
             {f}
