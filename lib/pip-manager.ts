@@ -802,6 +802,25 @@ class PipManager {
   // ============================================
 
   private drawPipCanvas(): void {
+    // อ่านข้อมูลล่าสุดจาก signalService โดยตรงทุก frame
+    // ไม่พึ่ง subscription เพื่อหลีกเลี่ยงปัญหา timing / module instance
+    const liveData = signalService.getData()
+    if (liveData) {
+      if (liveData.symbols) {
+        this.symbolData = liveData.symbols
+      }
+      if (liveData.countdown !== undefined) {
+        this.globalCountdown = liveData.stale ? 0 : liveData.countdown
+      } else if (liveData.symbols) {
+        for (const sym of Object.values(liveData.symbols)) {
+          if (sym.countdown !== undefined) {
+            this.globalCountdown = liveData.stale ? 0 : sym.countdown
+            break
+          }
+        }
+      }
+    }
+
     // วาดลง canvas หลัก (native PiP) หรือ popup canvas
     const ctx = this.pipMode === 'popup' && this.popupCtx
       ? this.popupCtx
@@ -813,10 +832,13 @@ class PipManager {
     if (this.pipMode === 'popup' && this.popupCanvas && this.overlayContainer) {
       const w = this.overlayContainer.clientWidth
       const h = this.overlayContainer.clientHeight
+      if (w === 0 || h === 0) return // รอจน layout พร้อม
       const dpr = window.devicePixelRatio || 1
-      if (this.popupCanvas.width !== w * dpr || this.popupCanvas.height !== h * dpr) {
-        this.popupCanvas.width = w * dpr
-        this.popupCanvas.height = h * dpr
+      const targetW = Math.round(w * dpr)
+      const targetH = Math.round(h * dpr)
+      if (this.popupCanvas.width !== targetW || this.popupCanvas.height !== targetH) {
+        this.popupCanvas.width = targetW
+        this.popupCanvas.height = targetH
         ctx.scale(dpr, dpr)
       }
     }
