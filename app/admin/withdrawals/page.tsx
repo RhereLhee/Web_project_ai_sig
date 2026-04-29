@@ -114,8 +114,81 @@ export default async function AdminWithdrawalsPage({ searchParams }: Props) {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-lg border overflow-hidden">
+      {/* Mobile card list */}
+      <div className="md:hidden space-y-3">
+        {withdrawals.length === 0 && (
+          <p className="text-center text-gray-500 py-8 bg-white rounded-lg border">ไม่มีรายการ</p>
+        )}
+        {withdrawals.map((w) => (
+          <div key={w.id} className="bg-white rounded-lg border overflow-hidden">
+            {/* Header row */}
+            <div className="flex items-start justify-between gap-2 px-4 py-3 border-b bg-gray-50">
+              <div className="min-w-0 flex-1">
+                <Link href={`/admin/withdrawals/${w.id}`} className="font-semibold text-gray-900 hover:text-emerald-600 truncate block">
+                  {w.user.name || '-'}
+                </Link>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {new Date(w.createdAt).toLocaleDateString('th-TH')} · {new Date(w.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              </div>
+              <div className="text-right flex-shrink-0">
+                <p className="font-bold text-emerald-600 text-lg leading-none">฿{(w.amount / 100).toLocaleString()}</p>
+                <span className={`mt-1 inline-block px-2 py-0.5 rounded text-xs font-medium ${statusColors[w.status]}`}>
+                  {statusLabels[w.status] || w.status}
+                </span>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="px-4 py-3 space-y-2 text-sm">
+              {/* Contact */}
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {w.user.email && (
+                  <a href={`mailto:${w.user.email}`} className="text-xs text-blue-600 hover:underline">{w.user.email}</a>
+                )}
+                {w.phone && (
+                  <a href={`tel:${w.phone}`} className="text-xs text-emerald-600 hover:underline font-mono">
+                    {w.phone.replace(/(\d{2})(\d{3})(\d{3})(\d{4})/, '+$1 $2-$3-$4')}
+                  </a>
+                )}
+              </div>
+
+              {/* Bank */}
+              <div className="bg-gray-50 rounded px-3 py-2">
+                <p className="font-medium text-gray-900">{w.bankCode} · {w.accountNumber}</p>
+                <p className="text-xs text-gray-500">{w.accountName}</p>
+              </div>
+
+              {w.status === 'REJECTED' && w.rejectedReason && (
+                <p className="text-xs text-red-600 bg-red-50 rounded px-2 py-1">{w.rejectedReason}</p>
+              )}
+              {w.status === 'PAID' && w.paidAt && (
+                <p className="text-xs text-gray-500">โอนเมื่อ {new Date(w.paidAt).toLocaleDateString('th-TH')}</p>
+              )}
+
+              {(w.status === 'PENDING' || w.status === 'APPROVED') && (
+                <div className="pt-1 border-t">
+                  <WithdrawalActions withdrawalId={w.id} showPaid={w.status === 'APPROVED'} />
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {pages > 1 && (
+          <div className="flex justify-center gap-2 pt-1">
+            {Array.from({ length: Math.min(pages, 10) }, (_, i) => i + 1).map((p) => (
+              <Link key={p} href={`/admin/withdrawals?page=${p}&status=${params.status || 'ALL'}`}
+                className={`px-3 py-1 rounded text-sm ${p === page ? 'bg-gray-900 text-white' : 'bg-white border hover:bg-gray-50'}`}>
+                {p}
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block bg-white rounded-lg border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
@@ -133,10 +206,7 @@ export default async function AdminWithdrawalsPage({ searchParams }: Props) {
               {withdrawals.map((w) => (
                 <tr key={w.id} className="hover:bg-gray-50">
                   <td className="p-3">
-                    <Link
-                      href={`/admin/withdrawals/${w.id}`}
-                      className="font-medium text-gray-900 hover:text-emerald-600 hover:underline"
-                    >
+                    <Link href={`/admin/withdrawals/${w.id}`} className="font-medium text-gray-900 hover:text-emerald-600 hover:underline">
                       {w.user.name || '-'}
                     </Link>
                     <p className="text-[10px] text-gray-400 font-mono mt-0.5">{w.withdrawalNumber}</p>
@@ -144,27 +214,17 @@ export default async function AdminWithdrawalsPage({ searchParams }: Props) {
                   <td className="p-3">
                     <div className="space-y-1">
                       {w.user.email && (
-                        <a 
-                          href={`mailto:${w.user.email}`}
-                          className="text-xs text-blue-600 hover:underline block"
-                        >
-                          {w.user.email}
-                        </a>
+                        <a href={`mailto:${w.user.email}`} className="text-xs text-blue-600 hover:underline block">{w.user.email}</a>
                       )}
                       {w.phone && (
-                        <a 
-                          href={`tel:${w.phone}`}
-                          className="text-xs text-emerald-600 hover:underline block font-mono"
-                        >
+                        <a href={`tel:${w.phone}`} className="text-xs text-emerald-600 hover:underline block font-mono">
                           {w.phone.replace(/(\d{2})(\d{3})(\d{3})(\d{4})/, '+$1 $2-$3-$4')}
                         </a>
                       )}
                     </div>
                   </td>
                   <td className="p-3">
-                    <p className="font-bold text-emerald-600 text-lg">
-                      ฿{(w.amount / 100).toLocaleString()}
-                    </p>
+                    <p className="font-bold text-emerald-600 text-lg">฿{(w.amount / 100).toLocaleString()}</p>
                   </td>
                   <td className="p-3">
                     <div className="space-y-0.5">
@@ -178,9 +238,7 @@ export default async function AdminWithdrawalsPage({ searchParams }: Props) {
                       {statusLabels[w.status] || w.status}
                     </span>
                     {w.status === 'REJECTED' && w.rejectedReason && (
-                      <p className="text-xs text-red-500 mt-1 max-w-[150px] truncate" title={w.rejectedReason}>
-                        {w.rejectedReason}
-                      </p>
+                      <p className="text-xs text-red-500 mt-1 max-w-[150px] truncate" title={w.rejectedReason}>{w.rejectedReason}</p>
                     )}
                   </td>
                   <td className="p-3 text-gray-500 text-xs">
@@ -188,16 +246,10 @@ export default async function AdminWithdrawalsPage({ searchParams }: Props) {
                     <p>{new Date(w.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}</p>
                   </td>
                   <td className="p-3">
-                    {w.status === 'PENDING' && (
-                      <WithdrawalActions withdrawalId={w.id} />
-                    )}
-                    {w.status === 'APPROVED' && (
-                      <WithdrawalActions withdrawalId={w.id} showPaid />
-                    )}
+                    {w.status === 'PENDING' && <WithdrawalActions withdrawalId={w.id} />}
+                    {w.status === 'APPROVED' && <WithdrawalActions withdrawalId={w.id} showPaid />}
                     {w.status === 'PAID' && w.paidAt && (
-                      <p className="text-xs text-gray-500">
-                        โอนเมื่อ {new Date(w.paidAt).toLocaleDateString('th-TH')}
-                      </p>
+                      <p className="text-xs text-gray-500">โอนเมื่อ {new Date(w.paidAt).toLocaleDateString('th-TH')}</p>
                     )}
                   </td>
                 </tr>
@@ -210,15 +262,11 @@ export default async function AdminWithdrawalsPage({ searchParams }: Props) {
           <p className="text-center text-gray-500 py-8">ไม่มีรายการ</p>
         )}
 
-        {/* Pagination */}
         {pages > 1 && (
           <div className="flex justify-center gap-2 p-4 border-t">
             {Array.from({ length: Math.min(pages, 10) }, (_, i) => i + 1).map((p) => (
-              <Link
-                key={p}
-                href={`/admin/withdrawals?page=${p}&status=${params.status || 'ALL'}`}
-                className={`px-3 py-1 rounded ${p === page ? 'bg-gray-900 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
-              >
+              <Link key={p} href={`/admin/withdrawals?page=${p}&status=${params.status || 'ALL'}`}
+                className={`px-3 py-1 rounded ${p === page ? 'bg-gray-900 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>
                 {p}
               </Link>
             ))}

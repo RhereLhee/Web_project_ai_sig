@@ -38,6 +38,7 @@ async function getStats() {
 
 async function getRecentUsers() {
   return await prisma.user.findMany({
+    where: { NOT: { email: { endsWith: '@deleted.invalid' } } },
     orderBy: { createdAt: 'desc' },
     take: 5,
     select: { id: true, name: true, email: true, createdAt: true, role: true },
