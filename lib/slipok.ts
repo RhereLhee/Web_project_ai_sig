@@ -126,7 +126,7 @@ export async function verifySlip(input: SlipVerifyInput): Promise<SlipVerifyResu
     }
     const ext = mimeToExt[input.fileMime] ?? 'jpg'
     const form = new FormData()
-    const file = new File([input.fileBuffer], `slip.${ext}`, { type: input.fileMime })
+    const file = new File([new Uint8Array(input.fileBuffer)], `slip.${ext}`, { type: input.fileMime })
     form.append('image', file)
 
     const controller = new AbortController()
