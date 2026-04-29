@@ -249,9 +249,23 @@ class PipManager {
       if (data.symbols) {
         this.symbolData = data.symbols
       }
+
+      // Update globalCountdown — ลำดับความสำคัญ:
+      // 1. top-level countdown (ถ้า server ส่งมา)
+      // 2. derive จาก per-symbol countdown (server ส่งแค่ใน symbols[x].countdown)
       if (data.countdown !== undefined) {
-        this.globalCountdown = data.countdown
+        // ตรง PipProvider: ถ้า stale ให้เป็น 0
+        this.globalCountdown = data.stale ? 0 : data.countdown
+      } else if (data.symbols) {
+        // หา countdown จาก symbol แรกที่มีค่า
+        for (const sym of Object.values(data.symbols)) {
+          if (sym.countdown !== undefined) {
+            this.globalCountdown = data.stale ? 0 : sym.countdown
+            break
+          }
+        }
       }
+
       if (data.hls_url && data.hls_url !== this.hlsUrl) {
         this.hlsUrl = data.hls_url
         this.preloadHlsVideo()
