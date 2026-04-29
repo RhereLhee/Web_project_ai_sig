@@ -11,9 +11,7 @@ interface Plan {
   months: number
   bonus: number
   priceBaht: number
-  badge?: string
   highlight: boolean
-  savingLabel?: string   // e.g. "ประหยัด ฿449/เดือน"
 }
 
 // Fixed prices matching server constants in route.ts
@@ -21,10 +19,6 @@ const PLAN_3M_BAHT = 1699
 const PLAN_6M_BAHT = 3499
 
 function buildPlans(baseBaht: number): Plan[] {
-  // Total saving vs buying 1m plans repeatedly + value of bonus months
-  const saving3 = baseBaht * 4 - PLAN_3M_BAHT   // vs 4×1m
-  const saving6 = baseBaht * 8 - PLAN_6M_BAHT   // vs 8×1m
-
   return [
     {
       id: '1m',
@@ -40,9 +34,7 @@ function buildPlans(baseBaht: number): Plan[] {
       months: 3,
       bonus: 1,
       priceBaht: PLAN_3M_BAHT,
-      badge: '⚡ แนะนำ',
       highlight: true,
-      savingLabel: saving3 > 0 ? `ประหยัด ฿${saving3.toLocaleString()}` : undefined,
     },
     {
       id: '6m',
@@ -50,9 +42,7 @@ function buildPlans(baseBaht: number): Plan[] {
       months: 6,
       bonus: 2,
       priceBaht: PLAN_6M_BAHT,
-      badge: '🔥 คุ้มสุด',
       highlight: false,
-      savingLabel: saving6 > 0 ? `ประหยัด ฿${saving6.toLocaleString()}` : undefined,
     },
   ]
 }
@@ -77,101 +67,72 @@ export function SignalPackages({ vipPriceBaht, hasReferral = false }: SignalPack
 
   return (
     <>
-      {/* Referral discount banner */}
+      {/* Referral discount notice */}
       {hasReferral && (
-        <div className="mb-4 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
-          <span className="text-emerald-600 text-lg">🎁</span>
-          <div>
-            <p className="text-sm font-semibold text-emerald-800">คุณมีส่วนลดจากรหัสแนะนำ!</p>
-            <p className="text-xs text-emerald-600">ลด ฿{REFERRAL_DISCOUNT_BAHT} ทุกแพ็กเกจ (แสดงในขั้นตอนชำระเงิน)</p>
-          </div>
+        <div className="mb-4 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3">
+          <p className="text-sm text-emerald-800">
+            คุณมีส่วนลด <span className="font-semibold">฿{REFERRAL_DISCOUNT_BAHT}</span> จากการสมัครผ่านลิงก์แนะนำ
+          </p>
         </div>
       )}
 
       {/* Plan cards */}
-      <div className="grid sm:grid-cols-3 gap-4">
+      <div className="grid sm:grid-cols-3 gap-3">
         {plans.map((plan) => {
           const discountedPrice = hasReferral
             ? plan.priceBaht - REFERRAL_DISCOUNT_BAHT
             : plan.priceBaht
+          const totalMonths = plan.months + plan.bonus
 
           return (
             <div
               key={plan.id}
-              className={`relative flex flex-col rounded-xl border-2 transition-all cursor-pointer ${
-                plan.highlight
-                  ? 'border-emerald-400 shadow-md shadow-emerald-100'
-                  : 'border-gray-200 hover:border-emerald-300'
-              }`}
               onClick={() => setSelectedPlan(plan.id)}
+              className={`flex flex-col rounded-xl border-2 p-5 cursor-pointer transition-all ${
+                plan.highlight
+                  ? 'border-emerald-400 bg-white'
+                  : 'border-gray-200 bg-white hover:border-gray-300'
+              }`}
             >
-              {/* Badge */}
-              {plan.badge && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-emerald-500 text-white text-xs font-bold rounded-full whitespace-nowrap">
-                  {plan.badge}
-                </div>
+              <p className="text-sm font-medium text-gray-700 mb-3">{plan.label}</p>
+
+              {plan.bonus > 0 && (
+                <p className="text-xs text-gray-500 mb-3">
+                  แถม {plan.bonus} เดือน · ใช้ได้ {totalMonths} เดือน
+                </p>
               )}
 
-              <div className={`p-5 flex-1 flex flex-col ${plan.highlight ? 'bg-emerald-50/30' : 'bg-white'} rounded-xl`}>
-                {/* Plan title */}
-                <p className="text-sm font-semibold text-gray-700 mb-3">{plan.label}</p>
-
-                {/* Bonus months tag */}
-                {plan.bonus > 0 && (
-                  <div className="inline-flex items-center gap-1 bg-amber-100 text-amber-700 text-xs font-semibold px-2 py-0.5 rounded-full mb-3 w-fit">
-                    🎁 แถมฟรี {plan.bonus} เดือน
-                  </div>
+              <div className="mb-4">
+                {hasReferral && (
+                  <p className="text-xs text-gray-400 line-through mb-0.5">
+                    ฿{plan.priceBaht.toLocaleString()}
+                  </p>
                 )}
-
-                {/* Total access */}
-                {plan.bonus > 0 && (
-                  <p className="text-xs text-gray-500 mb-2">ใช้ได้ {plan.months + plan.bonus} เดือน</p>
-                )}
-
-                {/* Price */}
-                <div className="mb-1">
-                  {hasReferral && (
-                    <p className="text-xs text-gray-400 line-through">
-                      ฿{plan.priceBaht.toLocaleString()}
-                    </p>
-                  )}
-                  <div className="flex items-baseline gap-1">
-                    <span className={`text-2xl font-bold ${plan.highlight ? 'text-emerald-700' : 'text-gray-900'}`}>
-                      ฿{discountedPrice.toLocaleString()}
-                    </span>
-                  </div>
-                  {plan.savingLabel && (
-                    <p className="text-xs text-emerald-600 font-medium mt-0.5">
-                      ≈ {plan.savingLabel}
-                    </p>
-                  )}
-                  {!plan.savingLabel && (
-                    <p className="text-xs text-gray-400 mt-0.5">/ {plan.months} เดือน</p>
-                  )}
-                </div>
-
-                <div className="flex-1" />
-
-                {/* CTA button */}
-                <button
-                  className={`mt-4 w-full py-2.5 rounded-lg font-semibold text-sm transition-colors ${
-                    plan.highlight
-                      ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
-                      : 'bg-gray-900 hover:bg-gray-800 text-white'
-                  }`}
-                >
-                  เลือกแพ็กเกจนี้
-                </button>
+                <p className="text-2xl font-bold text-gray-900">
+                  ฿{discountedPrice.toLocaleString()}
+                </p>
               </div>
+
+              <div className="flex-1" />
+
+              <button
+                className={`w-full py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  plan.highlight
+                    ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                    : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
+                }`}
+              >
+                เลือก
+              </button>
             </div>
           )
         })}
       </div>
 
-      {/* Feature list (shared across all plans) */}
+      {/* Features */}
       <ul className="mt-5 grid sm:grid-cols-2 gap-x-6 gap-y-1.5">
         {FEATURES.map((f) => (
-          <li key={f} className="flex items-center gap-2 text-sm text-gray-700">
+          <li key={f} className="flex items-center gap-2 text-sm text-gray-600">
             <svg className="w-4 h-4 text-emerald-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
             </svg>

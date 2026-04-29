@@ -168,7 +168,7 @@ export function CheckoutModal({ plan, plans, hasReferral, onClose }: CheckoutMod
                       <span className="line-through">฿{orderData.originalPrice.toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between text-emerald-600 font-medium">
-                      <span>🎁 ส่วนลดรหัสแนะนำ</span>
+                      <span>ส่วนลดรหัสแนะนำ</span>
                       <span>-฿{orderData.discountBaht.toLocaleString()}</span>
                     </div>
                   </>
