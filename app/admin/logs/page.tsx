@@ -129,11 +129,11 @@ export default function AdminLogsPage() {
         <ErrorModal text={expandedError} onClose={() => setExpandedError(null)} />
       )}
 
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
         <h1 className="text-2xl font-bold text-gray-900">System Logs</h1>
         <button
           onClick={() => { fetchLogs(); fetchHealth() }}
-          className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800"
+          className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 text-sm"
         >
           Refresh
         </button>
@@ -224,48 +224,82 @@ export default function AdminLogsPage() {
             ยังไม่มี log (log จะเริ่มเก็บเมื่อมี request เข้ามา)
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="px-4 py-3 text-left">เวลา</th>
-                <th className="px-4 py-3 text-left">Level</th>
-                <th className="px-4 py-3 text-left">Context</th>
-                <th className="px-4 py-3 text-left">Message</th>
-                <th className="px-4 py-3 text-left">Error</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
+          <>
+            {/* Mobile card list */}
+            <div className="md:hidden divide-y">
               {logs.map((log, i) => (
-                <tr key={i} className={log.level === 'fatal' ? 'bg-red-50' : log.level === 'error' ? 'bg-red-50/50' : ''}>
-                  <td className="px-4 py-3 text-gray-500 whitespace-nowrap font-mono text-xs">
-                    {new Date(log.timestamp).toLocaleString('th-TH')}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${levelColors[log.level] || 'bg-gray-100'}`}>
+                <div
+                  key={i}
+                  className={`p-3 space-y-1 ${log.level === 'fatal' || log.level === 'error' ? 'bg-red-50/60' : ''}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${levelColors[log.level] || 'bg-gray-100'}`}>
                       {log.level.toUpperCase()}
                     </span>
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">{log.context || '-'}</td>
-                  <td className="px-4 py-3 max-w-xs">
-                    <span className="block truncate" title={log.message}>{log.message}</span>
-                  </td>
-                  <td className="px-4 py-3 max-w-xs">
-                    {log.errorMessage ? (
-                      <button
-                        onClick={() => setExpandedError(log.errorMessage!)}
-                        className="text-left text-red-600 text-xs font-mono truncate block max-w-[200px] hover:text-red-800 hover:underline cursor-pointer"
-                        title="คลิกเพื่อดูข้อความเต็ม"
-                      >
-                        {log.errorMessage.substring(0, 80)}{log.errorMessage.length > 80 ? '…' : ''}
-                      </button>
-                    ) : (
-                      <span className="text-gray-400">-</span>
-                    )}
-                  </td>
-                </tr>
+                    <span className="text-[11px] text-gray-400 font-mono">
+                      {new Date(log.timestamp).toLocaleString('th-TH')}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-gray-500">
+                    <span className="bg-gray-100 rounded px-1.5 py-0.5">{log.context || '-'}</span>
+                  </div>
+                  <p className="text-sm text-gray-800 break-words">{log.message}</p>
+                  {log.errorMessage && (
+                    <button
+                      onClick={() => setExpandedError(log.errorMessage!)}
+                      className="text-left text-red-600 text-xs font-mono break-all hover:underline w-full"
+                    >
+                      ⚠ {log.errorMessage.substring(0, 100)}{log.errorMessage.length > 100 ? '…' : ''}
+                    </button>
+                  )}
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+
+            {/* Desktop table */}
+            <table className="hidden md:table w-full text-sm">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="px-4 py-3 text-left">เวลา</th>
+                  <th className="px-4 py-3 text-left">Level</th>
+                  <th className="px-4 py-3 text-left">Context</th>
+                  <th className="px-4 py-3 text-left">Message</th>
+                  <th className="px-4 py-3 text-left">Error</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {logs.map((log, i) => (
+                  <tr key={i} className={log.level === 'fatal' ? 'bg-red-50' : log.level === 'error' ? 'bg-red-50/50' : ''}>
+                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap font-mono text-xs">
+                      {new Date(log.timestamp).toLocaleString('th-TH')}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${levelColors[log.level] || 'bg-gray-100'}`}>
+                        {log.level.toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{log.context || '-'}</td>
+                    <td className="px-4 py-3 max-w-xs">
+                      <span className="block truncate" title={log.message}>{log.message}</span>
+                    </td>
+                    <td className="px-4 py-3 max-w-xs">
+                      {log.errorMessage ? (
+                        <button
+                          onClick={() => setExpandedError(log.errorMessage!)}
+                          className="text-left text-red-600 text-xs font-mono truncate block max-w-[200px] hover:text-red-800 hover:underline cursor-pointer"
+                          title="คลิกเพื่อดูข้อความเต็ม"
+                        >
+                          {log.errorMessage.substring(0, 80)}{log.errorMessage.length > 80 ? '…' : ''}
+                        </button>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
         )}
       </div>
 
