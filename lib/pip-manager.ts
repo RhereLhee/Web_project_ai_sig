@@ -570,84 +570,55 @@ class PipManager {
 
       const mobile = this.isMobile()
 
+      // Mobile: กว้างประมาณ 90% จอ สูง auto ตาม ratio 3:2 grid
+      // ลากได้ทุก device — ให้ user วางมุมที่ต้องการ
+      const vw = window.innerWidth
+      const overlayW = mobile ? Math.min(Math.round(vw * 0.88), 360) : 280
+      // grid 3×2 → ratio height = (width/3) * 2 * (9/16) + header
+      const cellH = Math.round((overlayW / 3) * 0.62)
+      const overlayH = mobile ? cellH * 2 + 26 : 200 // 26 = slim header strip
+
       // สร้าง overlay container
       this.overlayContainer = document.createElement('div')
       this.overlayContainer.id = 'pip-overlay'
       this.overlayContainer.setAttribute('data-pip-manager', 'overlay')
+      this.overlayContainer.style.cssText = `
+        position: fixed;
+        bottom: ${mobile ? '72px' : '80px'};
+        right: 8px;
+        width: ${overlayW}px;
+        height: ${overlayH}px;
+        z-index: 99999;
+        border-radius: ${mobile ? '10px' : '12px'};
+        overflow: hidden;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.65);
+        border: 1.5px solid rgba(0,228,118,0.35);
+        touch-action: none;
+      `
 
-      if (mobile) {
-        // Mobile: full-screen overlay
-        this.overlayContainer.style.cssText = `
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100dvw;
-          height: 100dvh;
-          z-index: 99999;
-          overflow: hidden;
-          background: #0a0a0a;
-          touch-action: none;
-        `
-      } else {
-        // Desktop: small overlay
-        this.overlayContainer.style.cssText = `
-          position: fixed;
-          bottom: 80px;
-          right: 8px;
-          width: 280px;
-          height: 200px;
-          z-index: 9999;
-          border-radius: 12px;
-          overflow: hidden;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-          border: 2px solid rgba(0,228,118,0.3);
-          touch-action: none;
-          transition: transform 0.2s ease;
-        `
-      }
-
-      // ปุ่มปิด
+      // ปุ่มปิด — วางไว้มุม overlay ไม่บังกราฟมาก
       const closeBtn = document.createElement('button')
-      if (mobile) {
-        closeBtn.style.cssText = `
-          position: absolute;
-          top: 10px;
-          right: 10px;
-          z-index: 100000;
-          width: 36px;
-          height: 36px;
-          border-radius: 50%;
-          background: rgba(0,0,0,0.75);
-          color: white;
-          border: 1px solid rgba(255,255,255,0.2);
-          font-size: 18px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          line-height: 1;
-        `
-      } else {
-        closeBtn.style.cssText = `
-          position: absolute;
-          top: 4px;
-          right: 4px;
-          z-index: 10000;
-          width: 24px;
-          height: 24px;
-          border-radius: 50%;
-          background: rgba(0,0,0,0.7);
-          color: white;
-          border: none;
-          font-size: 14px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-        `
-      }
+      closeBtn.style.cssText = `
+        position: absolute;
+        top: 3px;
+        right: 3px;
+        z-index: 100000;
+        width: ${mobile ? '22px' : '20px'};
+        height: ${mobile ? '22px' : '20px'};
+        border-radius: 50%;
+        background: rgba(0,0,0,0.8);
+        color: rgba(255,255,255,0.8);
+        border: none;
+        font-size: ${mobile ? '12px' : '11px'};
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0;
+      `
       closeBtn.textContent = '✕'
-      closeBtn.addEventListener('click', () => this.stop())
+      closeBtn.addEventListener('click', (e) => { e.stopPropagation(); this.stop() })
 
       // สร้าง canvas
       this.popupCanvas = document.createElement('canvas')
@@ -660,10 +631,8 @@ class PipManager {
       this.overlayContainer.appendChild(closeBtn)
       document.body.appendChild(this.overlayContainer)
 
-      // ลาก overlay ได้เฉพาะ desktop (mobile = full-screen ไม่ต้องลาก)
-      if (!mobile) {
-        this.setupDrag(this.overlayContainer)
-      }
+      // ลากได้ทุก device
+      this.setupDrag(this.overlayContainer)
 
       this.isActive = true
       this.notifyStateListeners(true)
@@ -831,16 +800,28 @@ class PipManager {
     ctx.fillStyle = COLORS.background
     ctx.fillRect(0, 0, width, height)
 
-    // Mobile slim mode: no global header, full chart grid, no price axis
+    // Mobile overlay → slim mode: ตัด price axis/line ออก, header เล็กลง
     const slim = this.pipMode === 'popup' && this.isMobile()
 
-    if (!slim) {
+    if (slim) {
+      // Mini header: แค่ title + global timer — สูง 26px แทน 40px
+      ctx.fillStyle = COLORS.header
+      ctx.fillRect(0, 0, width, 26)
+      ctx.fillStyle = '#FFFFFF'
+      ctx.font = 'bold 11px sans-serif'
+      ctx.textAlign = 'left'
+      ctx.fillText('TechTrade Signal', 6, 18)
+      ctx.textAlign = 'right'
+      ctx.font = 'bold 13px monospace'
+      ctx.fillStyle = this.globalCountdown <= 10 ? COLORS.down : '#AAAAAA'
+      ctx.fillText(this.formatTime(this.globalCountdown), width - 28, 18) // เว้นที่ปุ่มปิด
+    } else {
       this.drawHeader(ctx, width)
     }
 
     // Draw 6 charts in 3x2 grid
     const chartWidth = width / 3
-    const headerHeight = slim ? 0 : 40
+    const headerHeight = slim ? 26 : 40
     const chartHeight = (height - headerHeight) / 2
 
     SYMBOLS.forEach((symbol, index) => {
