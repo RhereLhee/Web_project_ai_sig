@@ -17,6 +17,7 @@ import { SignalRoomWithProvider } from "@/components/SignalRoomWithProvider"
 import { FreeSignalRoom } from "@/components/FreeSignalRoom"
 import { SignalPackages } from "./SignalPackages"
 import { getVipPriceSatang } from "@/lib/system-settings"
+import { prisma } from "@/lib/prisma"
 import {
   FREE_DAILY_LIMIT,
   FREE_PAIR_DISPLAY,
@@ -61,8 +62,15 @@ export default async function SignalsPage({ searchParams }: Props) {
   }
 
   // 3) Default for non-paying users → VIP package + free CTA
-  const vipPriceSatang = await getVipPriceSatang()
+  const [vipPriceSatang, userDetails] = await Promise.all([
+    getVipPriceSatang(),
+    prisma.user.findUnique({
+      where: { id: user.id },
+      select: { referredById: true },
+    }),
+  ])
   const vipPriceBaht = vipPriceSatang / 100
+  const hasReferral = !!userDetails?.referredById
 
   const startStr = String(FREE_WINDOW_START_HOUR).padStart(2, '0')
   const endStr = String(FREE_WINDOW_END_HOUR).padStart(2, '0')
@@ -109,7 +117,7 @@ export default async function SignalsPage({ searchParams }: Props) {
         <p className="text-sm text-gray-500 mb-4">
           ดู 6 คู่เงินตลอดเวลา ไม่มีจำกัดสัญญาณ พร้อมเสียงแจ้งเตือนและ Picture-in-Picture
         </p>
-        <SignalPackages vipPriceBaht={vipPriceBaht} />
+        <SignalPackages vipPriceBaht={vipPriceBaht} hasReferral={hasReferral} />
       </div>
 
       {/* FAQ */}
