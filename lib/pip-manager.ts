@@ -500,14 +500,25 @@ class PipManager {
     this.hlsVideo.src = expectedUrl
     this.hlsVideo.load()
 
-    const onCanPlay = () => {
+    // iOS HLS: canplay ต้องการ readyState=3 (HAVE_FUTURE_DATA) — อาจไม่ยิงเลย
+    // loadeddata ยิงที่ readyState=2 (HAVE_CURRENT_DATA) — มี data พอสำหรับ play()+PiP
+    const setReady = (event: string) => {
+      if (this.hlsReady) return
       this.hlsReady = true
       this.hlsLoading = false
+      this.hlsVideo?.removeEventListener('canplay', onCanPlay)
+      this.hlsVideo?.removeEventListener('loadeddata', onLoadedData)
       this.hlsVideo?.removeEventListener('error', onError)
-      this.plog(`HLS canplay ✓ (attempt ${attempt})`)
+      const v = this.hlsVideo
+      const rs = v ? v.readyState : '?'
+      const buf = (v && v.buffered.length > 0) ? `${v.buffered.end(v.buffered.length - 1).toFixed(1)}s` : '-'
+      this.plog(`HLS ready via ${event} (attempt=${attempt} rs=${rs} buf=${buf})`)
     }
+    const onCanPlay = () => setReady('canplay')
+    const onLoadedData = () => setReady('loadeddata')
     const onError = (e: Event) => {
       this.hlsVideo?.removeEventListener('canplay', onCanPlay)
+      this.hlsVideo?.removeEventListener('loadeddata', onLoadedData)
       const errCode = (e as any)?.target?.error?.code ?? '?'
       const delay = attempt < 8 ? 2000 : 10000
       this.plog(`HLS error code=${errCode} attempt=${attempt + 1} retry=${delay / 1000}s`)
@@ -515,6 +526,7 @@ class PipManager {
     }
 
     this.hlsVideo.addEventListener('canplay', onCanPlay, { once: true })
+    this.hlsVideo.addEventListener('loadeddata', onLoadedData, { once: true })
     this.hlsVideo.addEventListener('error', onError, { once: true })
   }
 
