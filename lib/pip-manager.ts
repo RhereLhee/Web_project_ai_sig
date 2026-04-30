@@ -628,18 +628,42 @@ class PipManager {
       this.isActive = true
       this.notifyStateListeners(true)
 
-      // เรียกอีกรอบหลัง PiP เริ่ม — เผื่อ browser reset handlers
       this.setupViewOnlyMediaSession()
 
-      // Keepalive: iOS อาจ reset playbackState — เซ็ตซ้ำทุก 2 วิ
+      // หลัง play() settle ~300ms → seekable มักมีค่าแล้ว → seek live edge
+      setTimeout(() => {
+        const v = this.hlsVideo
+        if (!v || !this.isActive) return
+        if (v.seekable.length > 0) {
+          const live = v.seekable.end(v.seekable.length - 1)
+          v.currentTime = live
+          this.plog(`deferred seek live=${live.toFixed(1)}s`)
+        } else {
+          this.plog('deferred seek: seekable still empty')
+        }
+      }, 300)
+
+      // Keepalive ทุก 2 วิ: รักษา playbackState + ดึงกลับ live edge ถ้าล้าหลัง
       this.stopMediaSessionKeepalive()
       this.mediaSessionIntervalId = setInterval(() => {
         if ('mediaSession' in navigator) {
           navigator.mediaSession.playbackState = 'playing'
         }
-        // เผื่อ video ถูก pause โดย system เล่นต่อ
-        if (this.hlsVideo && this.hlsVideo.paused) {
-          this.hlsVideo.play().catch(() => {})
+        const v = this.hlsVideo
+        if (!v) return
+        // resume ถ้า pause กลางทาง
+        if (v.paused) {
+          v.play().catch(() => {})
+          this.plog('keepalive: resume paused')
+        }
+        // ดึงกลับ live edge ถ้าล้าหลังเกิน 3 วิ
+        if (v.seekable.length > 0) {
+          const live = v.seekable.end(v.seekable.length - 1)
+          const lag = live - v.currentTime
+          if (lag > 3) {
+            v.currentTime = live
+            this.plog(`lag=${lag.toFixed(1)}s→seek live`)
+          }
         }
       }, 2000)
 
