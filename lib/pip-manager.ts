@@ -390,16 +390,30 @@ class PipManager {
       }
     })
 
-    this.hlsVideo.addEventListener('canplay', () => {
-      this.hlsReady = true
-    }, { once: true })
+    // เริ่ม load + retry อัตโนมัติเมื่อ stream ยังไม่พร้อม
+    // (server อาจเพิ่ง restart — FFmpeg ต้องการ 1-2 วิก่อนมี segment แรก)
+    this.hlsLoadWithRetry(hlsUrl)
+  }
 
-    this.hlsVideo.addEventListener('error', () => {
-      this.hlsReady = false
-    }, { once: true })
+  private hlsLoadWithRetry(expectedUrl: string, attempt = 0): void {
+    if (!this.hlsVideo || this.hlsUrl !== expectedUrl || this.hlsReady) return
+    if (attempt > 8) return // สูงสุด ~16 วิ
 
-    // เริ่ม load
+    this.hlsVideo.src = expectedUrl
     this.hlsVideo.load()
+
+    const onCanPlay = () => {
+      this.hlsReady = true
+      this.hlsVideo?.removeEventListener('error', onError)
+    }
+    const onError = () => {
+      this.hlsVideo?.removeEventListener('canplay', onCanPlay)
+      // รอ 2 วิแล้วลองใหม่ — stream อาจยังสร้าง segment แรกไม่เสร็จ
+      setTimeout(() => this.hlsLoadWithRetry(expectedUrl, attempt + 1), 2000)
+    }
+
+    this.hlsVideo.addEventListener('canplay', onCanPlay, { once: true })
+    this.hlsVideo.addEventListener('error', onError, { once: true })
   }
 
   // ซ่อนปุ่มควบคุม PiP — ให้เหลือแค่ดูอย่างเดียว (Sigzy-style)
@@ -453,26 +467,54 @@ class PipManager {
     }
   }
 
+  /** รอจนกว่า hlsVideo พร้อม (canplay) พร้อม retry เมื่อ error
+   *  ใช้ polling + event เพื่อรองรับ iOS gesture window (~5 วิ) */
+  private waitForHlsReady(timeoutMs: number): Promise<boolean> {
+    if (this.hlsReady) return Promise.resolve(true)
+    if (!this.hlsVideo || !this.hlsUrl) return Promise.resolve(false)
+
+    return new Promise((resolve) => {
+      const deadline = Date.now() + timeoutMs
+      const hlsVideo = this.hlsVideo!
+      const hlsUrl = this.hlsUrl!
+
+      const tryLoad = () => {
+        if (this.hlsReady) { resolve(true); return }
+        if (Date.now() >= deadline) { resolve(false); return }
+
+        hlsVideo.src = hlsUrl
+        hlsVideo.load()
+
+        const onCanPlay = () => {
+          hlsVideo.removeEventListener('error', onErr)
+          this.hlsReady = true
+          resolve(true)
+        }
+        const onErr = () => {
+          hlsVideo.removeEventListener('canplay', onCanPlay)
+          // stream ยังไม่พร้อม — รอ 1 วิแล้วลองใหม่
+          const wait = Math.min(1000, deadline - Date.now())
+          if (wait > 50) setTimeout(tryLoad, wait)
+          else resolve(false)
+        }
+
+        hlsVideo.addEventListener('canplay', onCanPlay, { once: true })
+        hlsVideo.addEventListener('error', onErr, { once: true })
+      }
+
+      tryLoad()
+    })
+  }
+
   private async startHlsPip(): Promise<boolean> {
     if (!this.hlsUrl || !this.hlsVideo) {
       return false
     }
 
-    // ถ้า video ยัง load ไม่เสร็จ ลอง reload + รอสั้นๆ
-    if (!this.hlsReady && this.hlsVideo.readyState < 2) {
-      this.hlsVideo.src = this.hlsUrl
-      this.hlsVideo.load()
-      const ready = await new Promise<boolean>((resolve) => {
-        const timeout = setTimeout(() => resolve(false), 3000)
-        this.hlsVideo!.addEventListener('canplay', () => {
-          clearTimeout(timeout)
-          resolve(true)
-        }, { once: true })
-        this.hlsVideo!.addEventListener('error', () => {
-          clearTimeout(timeout)
-          resolve(false)
-        }, { once: true })
-      })
+    // ถ้า video ยัง load ไม่เสร็จ — รอพร้อม retry สูงสุด 5 วิ
+    // (stream อาจเพิ่ง restart → segment แรกยังไม่มี → ลองซ้ำทุก 500ms)
+    if (!this.hlsReady) {
+      const ready = await this.waitForHlsReady(5000)
       if (!ready) return false
     }
 
