@@ -315,19 +315,26 @@ class PipManager {
       }
     }
 
-    // ลอง HLS ก่อน (ทุก platform)
-    const hlsSuccess = await this.startHlsPip()
-    if (hlsSuccess) return
+    const ios = this.isIOS()
+    const android = this.isAndroid()
 
-    // Canvas captureStream PiP — Desktop เท่านั้น
-    // บน mobile, Android Chrome ตอบ pictureInPictureEnabled=true
-    // แต่ native PiP กับ canvas stream มักจะ enter→leave ทันที ทำให้กระพริบ
-    if (!this.isMobile()) {
+    // HLS PiP — ข้ามบน iOS เพราะ HLS stream แสดงข้อมูล mock/ไม่ตรง
+    // iOS ใช้ webkit canvas PiP ด้านล่างแทน (แสดงกราฟจากโค้ดเราตรงๆ)
+    if (!ios) {
+      const hlsSuccess = await this.startHlsPip()
+      if (hlsSuccess) return
+    }
+
+    // Canvas captureStream PiP:
+    //   iOS     → webkitSetPresentationMode — ลอยข้าม app ได้ แสดงกราฟจริง ✓
+    //   Android → ข้าม — requestPictureInPicture กับ canvas stream enter→leave ทันที (กระพริบ) ✗
+    //   Desktop → requestPictureInPicture — ทำงานปกติ ✓
+    if (!android) {
       const nativeSuccess = await this.startCanvasPip()
       if (nativeSuccess) return
     }
 
-    // Overlay (popup) fallback — ลอยในเว็บ
+    // Overlay (popup) fallback — ลอยในเว็บเท่านั้น (Android / ไม่รองรับ PiP)
     this.pipMode = 'popup'
     await this.startPopupPip()
   }
@@ -896,6 +903,17 @@ class PipManager {
 
   private isMobile(): boolean {
     return typeof window !== 'undefined' && window.innerWidth < 768
+  }
+
+  private isIOS(): boolean {
+    if (typeof navigator === 'undefined') return false
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  }
+
+  private isAndroid(): boolean {
+    if (typeof navigator === 'undefined') return false
+    return /Android/.test(navigator.userAgent)
   }
 
   private drawHeader(ctx: CanvasRenderingContext2D, width: number): void {
