@@ -368,11 +368,12 @@ class PipManager {
     console.log(`[PiP] preloading HLS: ${hlsUrl}`)
 
     this.hlsVideo = document.createElement('video')
+    this.hlsVideo.src = hlsUrl
     this.hlsVideo.muted = true
     this.hlsVideo.playsInline = true
     this.hlsVideo.autoplay = false
     this.hlsVideo.controls = false
-    this.hlsVideo.preload = 'none' // ไม่ buffer segment — ป้องกัน iOS เล่น data เก่า
+    this.hlsVideo.preload = 'auto'
     this.hlsVideo.disablePictureInPicture = false
     this.hlsVideo.disableRemotePlayback = true
     this.hlsVideo.setAttribute('playsinline', '')
@@ -408,36 +409,32 @@ class PipManager {
 
   private hlsLoadWithRetry(expectedUrl: string, attempt = 0): void {
     this.hlsRetryTimeoutId = null
-    if (this.hlsUrl !== expectedUrl || this.hlsReady) {
+    if (!this.hlsVideo || this.hlsUrl !== expectedUrl || this.hlsReady) {
       this.hlsLoading = false
       return
     }
 
     this.hlsLoading = true
+    this.hlsVideo.src = expectedUrl
+    this.hlsVideo.load()
 
-    // ใช้ fetch HEAD แทน canplay — เช็คแค่ว่า stream accessible ไหม
-    // ไม่ buffer segment จริง → ป้องกัน iOS เล่น data เก่าตอน play()
-    fetch(expectedUrl, { method: 'HEAD', cache: 'no-store' })
-      .then(r => {
-        if (r.ok && this.hlsUrl === expectedUrl && !this.hlsReady) {
-          this.hlsReady = true
-          this.hlsLoading = false
-          console.log('[PiP] HLS ready ✓')
-        } else if (!r.ok) {
-          throw new Error(`HTTP ${r.status}`)
-        }
-      })
-      .catch(() => {
-        if (this.hlsUrl !== expectedUrl || this.hlsReady) {
-          this.hlsLoading = false
-          return
-        }
-        const delay = attempt < 8 ? 2000 : 10000
-        if (attempt < 8) {
-          console.log(`[PiP] HLS fetch attempt ${attempt + 1} failed, retry in ${delay / 1000}s`)
-        }
-        this.hlsRetryTimeoutId = setTimeout(() => this.hlsLoadWithRetry(expectedUrl, attempt + 1), delay)
-      })
+    const onCanPlay = () => {
+      this.hlsReady = true
+      this.hlsLoading = false
+      this.hlsVideo?.removeEventListener('error', onError)
+      console.log('[PiP] HLS ready ✓')
+    }
+    const onError = () => {
+      this.hlsVideo?.removeEventListener('canplay', onCanPlay)
+      const delay = attempt < 8 ? 2000 : 10000
+      if (attempt < 8) {
+        console.log(`[PiP] HLS load attempt ${attempt + 1} failed, retry in ${delay / 1000}s`)
+      }
+      this.hlsRetryTimeoutId = setTimeout(() => this.hlsLoadWithRetry(expectedUrl, attempt + 1), delay)
+    }
+
+    this.hlsVideo.addEventListener('canplay', onCanPlay, { once: true })
+    this.hlsVideo.addEventListener('error', onError, { once: true })
   }
 
   // ซ่อนปุ่มควบคุม PiP — ให้เหลือแค่ดูอย่างเดียว (Sigzy-style)
@@ -511,20 +508,22 @@ class PipManager {
       // Setup media session BEFORE entering PiP — ซ่อน controls ตั้งแต่แรก
       this.setupViewOnlyMediaSession()
 
-      // Force fresh load from live edge — ลบ buffer เก่าทิ้ง
-      // iOS จะโหลด .m3u8 ปัจจุบันและเริ่มเล่นจาก live segment ล่าสุด
-      this.hlsVideo.src = this.hlsUrl
-      this.hlsVideo.load()
+      // Seek to live edge ก่อน play — ป้องกัน iOS เล่น segment เก่าที่ buffer ไว้
+      // seekable.end(0) = จุดสิ้นสุดของ segment ล่าสุดใน m3u8 playlist = live edge
+      try {
+        if (this.hlsVideo.seekable.length > 0) {
+          const liveEdge = this.hlsVideo.seekable.end(this.hlsVideo.seekable.length - 1)
+          this.hlsVideo.currentTime = liveEdge
+          console.log(`[PiP] Seek to live edge: ${liveEdge.toFixed(1)}s`)
+        }
+      } catch {}
 
-      const playPromise = this.hlsVideo.play()
+      await this.hlsVideo.play()
 
+      // iOS Safari: ลอง webkit ก่อน
       if ((this.hlsVideo as any).webkitSupportsPresentationMode) {
-        // iOS: เรียก synchronously ก่อน await — gesture window ยังอยู่
         ;(this.hlsVideo as any).webkitSetPresentationMode('picture-in-picture')
-        await playPromise
       } else if ('requestPictureInPicture' in this.hlsVideo) {
-        // Desktop: ต้อง await play ก่อน
-        await playPromise
         await (this.hlsVideo as any).requestPictureInPicture()
       } else {
         throw new Error('PiP API not available')
