@@ -315,18 +315,16 @@ class PipManager {
       }
     }
 
-    const ios = this.isIOS()
     const android = this.isAndroid()
 
-    // HLS PiP — ข้ามบน iOS เพราะ HLS stream แสดงข้อมูล mock/ไม่ตรง
-    // iOS ใช้ webkit canvas PiP ด้านล่างแทน (แสดงกราฟจากโค้ดเราตรงๆ)
-    if (!ios) {
-      const hlsSuccess = await this.startHlsPip()
-      if (hlsSuccess) return
-    }
+    // HLS PiP — ลองทุก platform รวมถึง iOS
+    // iOS Safari รองรับ HLS + webkit PiP นี่คือ path ที่ดีที่สุดสำหรับ iOS
+    // Android/Desktop ก็รองรับ HLS video PiP ลอยเหนือ app ได้เลย
+    const hlsSuccess = await this.startHlsPip()
+    if (hlsSuccess) return
 
     // Canvas captureStream PiP:
-    //   iOS     → webkitSetPresentationMode — ลอยข้าม app ได้ แสดงกราฟจริง ✓
+    //   iOS     → webkitSetPresentationMode — fallback ถ้า HLS ไม่มี URL ✓
     //   Android → ข้าม — requestPictureInPicture กับ canvas stream enter→leave ทันที (กระพริบ) ✗
     //   Desktop → requestPictureInPicture — ทำงานปกติ ✓
     if (!android) {
