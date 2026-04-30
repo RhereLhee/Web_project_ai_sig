@@ -511,17 +511,30 @@ class PipManager {
       // Setup media session BEFORE entering PiP — ซ่อน controls ตั้งแต่แรก
       this.setupViewOnlyMediaSession()
 
-      // Force fresh load from live edge — ลบ buffer เก่าทิ้ง
-      // iOS จะโหลด .m3u8 ปัจจุบันและเริ่มเล่นจาก live segment ล่าสุด
-      this.hlsVideo.src = this.hlsUrl
-      this.hlsVideo.load()
+      // Cache-bust m3u8 URL — force iOS to fetch current playlist (not cached)
+      // Without this, iOS may serve old m3u8 with deleted segment references → stall
+      const sep = this.hlsUrl.includes('?') ? '&' : '?'
+      const freshUrl = `${this.hlsUrl}${sep}_t=${Date.now()}`
+      this.hlsVideo.src = freshUrl
+      // Do NOT call load() — it cancels pending play() and can cause AbortError
+      // Setting src is enough; play() will trigger load automatically
 
       const playPromise = this.hlsVideo.play()
 
       if ((this.hlsVideo as any).webkitSupportsPresentationMode) {
         // iOS: เรียก synchronously ก่อน await — gesture window ยังอยู่
         ;(this.hlsVideo as any).webkitSetPresentationMode('picture-in-picture')
-        await playPromise
+        // Handle play() rejection without falling back to popup:
+        // play() may reject immediately (no data yet) but PiP mode is already set.
+        // We catch and retry — the video will play once the first segment downloads.
+        await playPromise.catch((err: any) => {
+          console.log('[PiP] play() rejected:', err?.name, '— retrying after data loads')
+          setTimeout(() => {
+            if (this.isActive && this.hlsVideo) {
+              this.hlsVideo.play().catch(() => {})
+            }
+          }, 1000)
+        })
       } else if ('requestPictureInPicture' in this.hlsVideo) {
         // Desktop: ต้อง await play ก่อน
         await playPromise
@@ -537,23 +550,50 @@ class PipManager {
       // เรียกอีกรอบหลัง PiP เริ่ม — เผื่อ browser reset handlers
       this.setupViewOnlyMediaSession()
 
-      // Keepalive: iOS อาจ reset playbackState — เซ็ตซ้ำทุก 2 วิ
+      // Keepalive: stall recovery + mediaSession refresh ทุก 2 วิ
       this.stopMediaSessionKeepalive()
+      let lastCurrentTime = -1
+      let stuckTicks = 0
       this.mediaSessionIntervalId = setInterval(() => {
         if ('mediaSession' in navigator) {
           navigator.mediaSession.playbackState = 'playing'
         }
-        // เผื่อ video ถูก pause โดย system เล่นต่อ
-        if (this.hlsVideo && this.hlsVideo.paused) {
-          this.hlsVideo.play().catch(() => {})
+        const v = this.hlsVideo
+        if (!v || !this.isActive) return
+
+        // Resume if paused by system
+        if (v.paused) {
+          v.play().catch(() => {})
+          stuckTicks = 0
+          lastCurrentTime = -1
+          return
         }
+
+        // Stall detection: currentTime not advancing + waiting for data
+        if (v.readyState < 3 && v.currentTime === lastCurrentTime && lastCurrentTime >= 0) {
+          stuckTicks++
+          if (stuckTicks >= 3) {
+            // Stalled 6s+ — force a fresh play() to re-request current segment
+            console.log(`[PiP] stall detected at t=${v.currentTime.toFixed(1)}s rs=${v.readyState} — resuming`)
+            stuckTicks = 0
+            v.play().catch(() => {})
+          }
+        } else {
+          stuckTicks = 0
+        }
+        lastCurrentTime = v.currentTime
       }, 2000)
 
       return true
 
-    } catch {
-      try { this.hlsVideo.pause() } catch {}
-      return false
+    } catch (err) {
+      console.log('[PiP] startHlsPip catch:', err)
+      // Only pause/abandon if PiP was never set
+      if (!this.isActive) {
+        try { this.hlsVideo?.pause() } catch {}
+        return false
+      }
+      return true
     }
   }
 
