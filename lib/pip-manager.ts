@@ -69,6 +69,8 @@ class PipManager {
   private globalCountdown = 0
   private hlsUrl: string | null = null
   private hlsReady = false // HLS video pre-loaded and ready for instant PiP
+  private hlsLoading = false // HLS load/retry cycle in progress
+  private hlsRetryTimeoutId: ReturnType<typeof setTimeout> | null = null
   private mediaSessionIntervalId: ReturnType<typeof setInterval> | null = null
 
   // Listeners
@@ -266,9 +268,14 @@ class PipManager {
         }
       }
 
-      if (data.hls_url && data.hls_url !== this.hlsUrl) {
-        this.hlsUrl = data.hls_url
-        this.preloadHlsVideo()
+      if (data.hls_url) {
+        if (data.hls_url !== this.hlsUrl) {
+          this.hlsUrl = data.hls_url
+          this.preloadHlsVideo()
+        } else if (!this.hlsReady && !this.hlsLoading && this.hlsUrl) {
+          // URL เดิมแต่ load cycle หยุดแล้ว → เริ่มใหม่
+          this.preloadHlsVideo()
+        }
       }
     })
 
@@ -320,19 +327,23 @@ class PipManager {
     // HLS PiP — ลองทุก platform รวมถึง iOS
     // iOS Safari รองรับ HLS + webkit PiP นี่คือ path ที่ดีที่สุดสำหรับ iOS
     // Android/Desktop ก็รองรับ HLS video PiP ลอยเหนือ app ได้เลย
-    const hlsSuccess = await this.startHlsPip()
-    if (hlsSuccess) return
+    console.log(`[PiP] start() — hlsUrl=${!!this.hlsUrl} hlsReady=${this.hlsReady} android=${android} iOS=${this.isIOS()}`)
 
-    // Canvas captureStream PiP:
-    //   iOS     → webkitSetPresentationMode — fallback ถ้า HLS ไม่มี URL ✓
-    //   Android → ข้าม — requestPictureInPicture กับ canvas stream enter→leave ทันที (กระพริบ) ✗
-    //   Desktop → requestPictureInPicture — ทำงานปกติ ✓
-    if (!android) {
-      const nativeSuccess = await this.startCanvasPip()
-      if (nativeSuccess) return
+    const hlsSuccess = await this.startHlsPip()
+    if (hlsSuccess) {
+      console.log('[PiP] → HLS PiP activated ✓')
+      return
     }
 
-    // Overlay (popup) fallback — ลอยในเว็บเท่านั้น (Android / ไม่รองรับ PiP)
+    if (!android) {
+      const nativeSuccess = await this.startCanvasPip()
+      if (nativeSuccess) {
+        console.log('[PiP] → Canvas PiP activated ✓')
+        return
+      }
+    }
+
+    console.log('[PiP] → Popup fallback')
     this.pipMode = 'popup'
     await this.startPopupPip()
   }
@@ -348,20 +359,20 @@ class PipManager {
   // Pre-load HLS video ทันทีที่ได้ URL จาก WebSocket
   // เพื่อให้ตอนกด PiP ไม่ต้องรอ fetch/canplay iOS gesture token ไม่หมดอายุ
   private preloadHlsVideo(): void {
-    // Cleanup old one if URL changed
     this.cleanupHlsVideo()
     this.hlsReady = false
 
     const hlsUrl = this.hlsUrl
     if (!hlsUrl) return
 
+    console.log(`[PiP] preloading HLS: ${hlsUrl}`)
+
     this.hlsVideo = document.createElement('video')
-    this.hlsVideo.src = hlsUrl
     this.hlsVideo.muted = true
     this.hlsVideo.playsInline = true
-    this.hlsVideo.autoplay = false // ไม่ autoplay — รอจนกว่า user กด PiP
+    this.hlsVideo.autoplay = false
     this.hlsVideo.controls = false
-    this.hlsVideo.preload = 'auto'
+    this.hlsVideo.preload = 'none' // ไม่ buffer segment — ป้องกัน iOS เล่น data เก่า
     this.hlsVideo.disablePictureInPicture = false
     this.hlsVideo.disableRemotePlayback = true
     this.hlsVideo.setAttribute('playsinline', '')
@@ -396,24 +407,37 @@ class PipManager {
   }
 
   private hlsLoadWithRetry(expectedUrl: string, attempt = 0): void {
-    if (!this.hlsVideo || this.hlsUrl !== expectedUrl || this.hlsReady) return
-    if (attempt > 8) return // สูงสุด ~16 วิ
-
-    this.hlsVideo.src = expectedUrl
-    this.hlsVideo.load()
-
-    const onCanPlay = () => {
-      this.hlsReady = true
-      this.hlsVideo?.removeEventListener('error', onError)
-    }
-    const onError = () => {
-      this.hlsVideo?.removeEventListener('canplay', onCanPlay)
-      // รอ 2 วิแล้วลองใหม่ — stream อาจยังสร้าง segment แรกไม่เสร็จ
-      setTimeout(() => this.hlsLoadWithRetry(expectedUrl, attempt + 1), 2000)
+    this.hlsRetryTimeoutId = null
+    if (this.hlsUrl !== expectedUrl || this.hlsReady) {
+      this.hlsLoading = false
+      return
     }
 
-    this.hlsVideo.addEventListener('canplay', onCanPlay, { once: true })
-    this.hlsVideo.addEventListener('error', onError, { once: true })
+    this.hlsLoading = true
+
+    // ใช้ fetch HEAD แทน canplay — เช็คแค่ว่า stream accessible ไหม
+    // ไม่ buffer segment จริง → ป้องกัน iOS เล่น data เก่าตอน play()
+    fetch(expectedUrl, { method: 'HEAD', cache: 'no-store' })
+      .then(r => {
+        if (r.ok && this.hlsUrl === expectedUrl && !this.hlsReady) {
+          this.hlsReady = true
+          this.hlsLoading = false
+          console.log('[PiP] HLS ready ✓')
+        } else if (!r.ok) {
+          throw new Error(`HTTP ${r.status}`)
+        }
+      })
+      .catch(() => {
+        if (this.hlsUrl !== expectedUrl || this.hlsReady) {
+          this.hlsLoading = false
+          return
+        }
+        const delay = attempt < 8 ? 2000 : 10000
+        if (attempt < 8) {
+          console.log(`[PiP] HLS fetch attempt ${attempt + 1} failed, retry in ${delay / 1000}s`)
+        }
+        this.hlsRetryTimeoutId = setTimeout(() => this.hlsLoadWithRetry(expectedUrl, attempt + 1), delay)
+      })
   }
 
   // ซ่อนปุ่มควบคุม PiP — ให้เหลือแค่ดูอย่างเดียว (Sigzy-style)
@@ -469,15 +493,17 @@ class PipManager {
 
   private async startHlsPip(): Promise<boolean> {
     if (!this.hlsUrl || !this.hlsVideo) {
+      console.log('[PiP] HLS skip: no URL or video element')
       return false
     }
 
     // iOS gesture requirement: webkitSetPresentationMode ต้องถูก call
     // ทันทีหลัง user tap — ห้าม await นาน ไม่งั้น gesture window หมดอายุ
-    // → ถ้า stream ยังไม่พร้อม return false เร็วๆ ให้ fall ไป popup แทน
-    // hlsLoadWithRetry() จะทำให้ hlsReady = true ใน background ภายใน ~4 วิ
-    // แล้วการกด PiP ครั้งต่อไปจะสำเร็จ
     if (!this.hlsReady) {
+      console.log('[PiP] HLS not ready — kicking retry for next tap')
+      if (!this.hlsLoading) {
+        this.hlsLoadWithRetry(this.hlsUrl)
+      }
       return false
     }
 
@@ -485,12 +511,20 @@ class PipManager {
       // Setup media session BEFORE entering PiP — ซ่อน controls ตั้งแต่แรก
       this.setupViewOnlyMediaSession()
 
-      await this.hlsVideo.play()
+      // Force fresh load from live edge — ลบ buffer เก่าทิ้ง
+      // iOS จะโหลด .m3u8 ปัจจุบันและเริ่มเล่นจาก live segment ล่าสุด
+      this.hlsVideo.src = this.hlsUrl
+      this.hlsVideo.load()
 
-      // iOS Safari: ลอง webkit ก่อน
+      const playPromise = this.hlsVideo.play()
+
       if ((this.hlsVideo as any).webkitSupportsPresentationMode) {
+        // iOS: เรียก synchronously ก่อน await — gesture window ยังอยู่
         ;(this.hlsVideo as any).webkitSetPresentationMode('picture-in-picture')
+        await playPromise
       } else if ('requestPictureInPicture' in this.hlsVideo) {
+        // Desktop: ต้อง await play ก่อน
+        await playPromise
         await (this.hlsVideo as any).requestPictureInPicture()
       } else {
         throw new Error('PiP API not available')
@@ -531,6 +565,11 @@ class PipManager {
   }
 
   private cleanupHlsVideo(): void {
+    this.hlsLoading = false
+    if (this.hlsRetryTimeoutId) {
+      clearTimeout(this.hlsRetryTimeoutId)
+      this.hlsRetryTimeoutId = null
+    }
     if (this.hlsVideo) {
       this.hlsVideo.pause()
       this.hlsVideo.removeAttribute('src')
