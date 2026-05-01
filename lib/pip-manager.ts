@@ -463,19 +463,21 @@ class PipManager {
     this.hlsVideo.style.cssText = 'position:fixed;bottom:-100px;left:-100px;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-9999;'
     document.body.appendChild(this.hlsVideo)
 
-    // Listen for PiP exit events
-    this.hlsVideo.addEventListener('leavepictureinpicture', () => {
+    // Listen for PiP exit events — re-preload after exit so next tap works immediately
+    const onPipExit = () => {
       this.isActive = false
       this.stopMediaSessionKeepalive()
       this.notifyStateListeners(false)
-    })
+      this.plog('PiP exited — re-preloading for next tap')
+      // Defer: let iOS finish the transition before reinitialising the element
+      setTimeout(() => {
+        if (this.hlsUrl) this.preloadHlsVideo()
+      }, 600)
+    }
+    this.hlsVideo.addEventListener('leavepictureinpicture', onPipExit)
     this.hlsVideo.addEventListener('webkitpresentationmodechanged', () => {
       const mode = (this.hlsVideo as any)?.webkitPresentationMode
-      if (mode === 'inline') {
-        this.isActive = false
-        this.stopMediaSessionKeepalive()
-        this.notifyStateListeners(false)
-      }
+      if (mode === 'inline') onPipExit()
     })
 
     // เริ่ม load + retry อัตโนมัติเมื่อ stream ยังไม่พร้อม
@@ -621,10 +623,13 @@ class PipManager {
       // Without this, iOS may serve old m3u8 with deleted segment references → stall
       const sep = this.hlsUrl.includes('?') ? '&' : '?'
       const freshUrl = `${this.hlsUrl}${sep}_t=${Date.now()}`
-      this.plog(`src=freshUrl play()`)
+      this.plog(`src=freshUrl load() play()`)
       this.hlsVideo.src = freshUrl
-      // Do NOT call load() — it resets readyState→0 causing immediate AbortError
-      // Setting src is enough; play() triggers load automatically
+      // load() MUST be called after src change — without it iOS keeps the old
+      // preloaded buffer in a half-reset state and stalls at t=0.0 / rs=2.
+      // load() BEFORE play() is safe: AbortError only happens when load() is
+      // called AFTER a pending play() promise, not before.
+      this.hlsVideo.load()
 
       const playPromise = this.hlsVideo.play()
 
@@ -716,6 +721,7 @@ class PipManager {
 
   private cleanupHlsVideo(): void {
     this.hlsLoading = false
+    this.hlsReady = false  // reset so data listener can re-trigger preloadHlsVideo
     if (this.hlsRetryTimeoutId) {
       clearTimeout(this.hlsRetryTimeoutId)
       this.hlsRetryTimeoutId = null
