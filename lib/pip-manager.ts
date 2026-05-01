@@ -312,13 +312,20 @@ class PipManager {
     const seekable = v && v.seekable.length > 0
       ? `${v.seekable.start(0).toFixed(1)}-${v.seekable.end(v.seekable.length - 1).toFixed(1)}s`
       : 'empty'
+    // networkState labels: 0=EMPTY 1=IDLE 2=LOADING 3=NO_SRC
+    const netLabels = ['EMPTY','IDLE','LOADING','NO_SRC']
+    // readyState labels: 0=NOTHING 1=METADATA 2=CURRENT 3=FUTURE 4=ENOUGH
+    const rsLabels = ['NOTHING','METADATA','CURRENT','FUTURE','ENOUGH']
+    const rs = v?.readyState ?? -1
+    const net = v?.networkState ?? -1
     this.debugStateEl.textContent = [
       `mode:${this.pipMode} | active:${this.isActive}`,
       `ready:${this.hlsReady} | loading:${this.hlsLoading}`,
-      `readySt:${v?.readyState ?? '?'} | net:${v?.networkState ?? '?'}`,
-      `currentT:${v ? v.currentTime.toFixed(1) + 's' : '?'}`,
-      `buffered:${buf} | seekable:${seekable}`,
-      `paused:${v?.paused ?? '?'}`,
+      `rs:${rs}(${rsLabels[rs]??'?'}) net:${net}(${netLabels[net]??'?'})`,
+      `t:${v ? v.currentTime.toFixed(2)+'s' : '?'} | dur:${v ? (isFinite(v.duration)?v.duration.toFixed(1):'∞') : '?'}`,
+      `buf:${buf} | seek:${seekable}`,
+      `paused:${v?.paused??'?'} | ended:${v?.ended??'?'}`,
+      `err:${(v as any)?.error?.code ?? 'none'}`,
     ].join('\n')
   }
 
@@ -459,9 +466,40 @@ class PipManager {
     this.hlsVideo.setAttribute('controlsList', 'nofullscreen nodownload noremoteplayback noplaybackrate')
     // ซ่อน controls: x-webkit attributes
     this.hlsVideo.setAttribute('x-webkit-airplay', 'deny')
-    // ซ่อนจริงๆ — ไม่ให้ iOS เปิด native player ขึ้นมา
-    this.hlsVideo.style.cssText = 'position:fixed;bottom:-100px;left:-100px;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-9999;'
+    // ต้อง ON-SCREEN + opacity≥0.01 — iOS ไม่ทำ PiP กับ element ที่ invisible/off-screen
+    // opacity:0 หรือ bottom:-100px จะทำให้ iOS throttle load และไม่โชว์ PiP window
+    this.hlsVideo.style.cssText = 'position:fixed;bottom:0;right:0;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-1;'
     document.body.appendChild(this.hlsVideo)
+
+    // ─── Debug event listeners ───────────────────────────────────────────────
+    // ทุก event ที่สำคัญจะถูก log เพื่อ diagnose ปัญหา
+    const v = this.hlsVideo
+    v.addEventListener('loadstart',      () => this.plog('ev:loadstart'))
+    v.addEventListener('durationchange', () => this.plog(`ev:durationchange dur=${v.duration}`))
+    v.addEventListener('loadedmetadata', () => this.plog(`ev:loadedmetadata rs=${v.readyState}`))
+    v.addEventListener('loadeddata',     () => this.plog(`ev:loadeddata rs=${v.readyState}`))
+    v.addEventListener('canplay',        () => this.plog(`ev:canplay rs=${v.readyState}`))
+    v.addEventListener('canplaythrough', () => this.plog(`ev:canplaythrough rs=${v.readyState}`))
+    v.addEventListener('playing',        () => this.plog(`ev:playing t=${v.currentTime.toFixed(2)}`))
+    v.addEventListener('waiting',        () => this.plog(`ev:waiting t=${v.currentTime.toFixed(2)} rs=${v.readyState}`))
+    v.addEventListener('stalled',        () => this.plog(`ev:stalled t=${v.currentTime.toFixed(2)} net=${v.networkState}`))
+    v.addEventListener('suspend',        () => this.plog(`ev:suspend t=${v.currentTime.toFixed(2)} rs=${v.readyState}`))
+    v.addEventListener('abort',          () => this.plog('ev:abort'))
+    v.addEventListener('emptied',        () => this.plog('ev:emptied'))
+    v.addEventListener('ended',          () => this.plog('ev:ended'))
+    v.addEventListener('error',          () => {
+      const e = (v as any).error
+      this.plog(`ev:error code=${e?.code} msg=${e?.message}`)
+    })
+    // timeupdate ทุก ~250ms — ยืนยันว่า currentTime เดิน
+    let lastLoggedTime = -1
+    v.addEventListener('timeupdate', () => {
+      if (Math.abs(v.currentTime - lastLoggedTime) >= 1) {
+        lastLoggedTime = v.currentTime
+        this.plog(`ev:timeupdate t=${v.currentTime.toFixed(1)}s`)
+      }
+    })
+    // ─────────────────────────────────────────────────────────────────────────
 
     // Listen for PiP exit events — re-preload after exit so next tap works immediately
     const onPipExit = () => {
@@ -615,22 +653,14 @@ class PipManager {
     }
 
     try {
-      this.plog('startHlsPip begin')
+      this.plog(`startHlsPip rs=${this.hlsVideo.readyState} buf=${this.hlsVideo.buffered.length > 0 ? this.hlsVideo.buffered.end(this.hlsVideo.buffered.length-1).toFixed(1)+'s' : '-'}`)
       // Setup media session BEFORE entering PiP — ซ่อน controls ตั้งแต่แรก
       this.setupViewOnlyMediaSession()
 
-      // Cache-bust m3u8 URL — force iOS to fetch current playlist (not cached)
-      // Without this, iOS may serve old m3u8 with deleted segment references → stall
-      const sep = this.hlsUrl.includes('?') ? '&' : '?'
-      const freshUrl = `${this.hlsUrl}${sep}_t=${Date.now()}`
-      this.plog(`src=freshUrl load() play()`)
-      this.hlsVideo.src = freshUrl
-      // load() MUST be called after src change — without it iOS keeps the old
-      // preloaded buffer in a half-reset state and stalls at t=0.0 / rs=2.
-      // load() BEFORE play() is safe: AbortError only happens when load() is
-      // called AFTER a pending play() promise, not before.
-      this.hlsVideo.load()
-
+      // ไม่ต้อง freshUrl หรือ load() — ใช้ preloaded video ที่โหลดไว้แล้ว (rs≥3)
+      // การ load() ใหม่ตอนกด PiP ทำให้ readyState ตกเป็น 0 → iOS ไม่โชว์ PiP window
+      // เพราะ webkitSetPresentationMode ต้องการ video ที่มี frame พร้อมแสดง
+      this.plog('play()...')
       const playPromise = this.hlsVideo.play()
 
       if ((this.hlsVideo as any).webkitSupportsPresentationMode) {
