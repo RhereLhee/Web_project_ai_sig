@@ -71,6 +71,8 @@ class PipManager {
   private hlsReady = false // HLS video pre-loaded and ready for instant PiP
   private hlsLoading = false // HLS load/retry cycle in progress
   private hlsRetryTimeoutId: ReturnType<typeof setTimeout> | null = null
+  private hlsLoadedDataTimeoutId: ReturnType<typeof setTimeout> | null = null
+  private hlsLoadGeneration = 0 // prevents stale closures from affecting new loads
   private mediaSessionIntervalId: ReturnType<typeof setInterval> | null = null
 
   // Debug overlay (เปิดใช้งานเมื่อ URL มี ?pip_debug)
@@ -306,26 +308,26 @@ class PipManager {
   private refreshDebug(): void {
     if (!this.debugStateEl) return
     const v = this.hlsVideo
-    const buf = v && v.buffered.length > 0
-      ? `${v.buffered.start(0).toFixed(1)}-${v.buffered.end(v.buffered.length - 1).toFixed(1)}s`
-      : '-'
     const seekable = v && v.seekable.length > 0
       ? `${v.seekable.start(0).toFixed(1)}-${v.seekable.end(v.seekable.length - 1).toFixed(1)}s`
       : 'empty'
-    // networkState labels: 0=EMPTY 1=IDLE 2=LOADING 3=NO_SRC
     const netLabels = ['EMPTY','IDLE','LOADING','NO_SRC']
-    // readyState labels: 0=NOTHING 1=METADATA 2=CURRENT 3=FUTURE 4=ENOUGH
     const rsLabels = ['NOTHING','METADATA','CURRENT','FUTURE','ENOUGH']
     const rs = v?.readyState ?? -1
     const net = v?.networkState ?? -1
+    // Data freshness
+    const liveData = signalService.getData()
+    const symCount = liveData ? Object.keys(liveData.symbols || {}).length : 0
+    const stale = liveData?.stale ? '(STALE)' : ''
     this.debugStateEl.textContent = [
       `mode:${this.pipMode} | active:${this.isActive}`,
-      `ready:${this.hlsReady} | loading:${this.hlsLoading}`,
+      `ready:${this.hlsReady} | loading:${this.hlsLoading} gen:${this.hlsLoadGeneration}`,
       `rs:${rs}(${rsLabels[rs]??'?'}) net:${net}(${netLabels[net]??'?'})`,
       `t:${v ? v.currentTime.toFixed(2)+'s' : '?'} | dur:${v ? (isFinite(v.duration)?v.duration.toFixed(1):'∞') : '?'}`,
-      `buf:${buf} | seek:${seekable}`,
+      `buf:${this.fmtBuf(v!)} | seek:${seekable}`,
       `paused:${v?.paused??'?'} | ended:${v?.ended??'?'}`,
       `err:${(v as any)?.error?.code ?? 'none'}`,
+      `data:${symCount}sym cd:${this.globalCountdown}s ${stale}`,
     ].join('\n')
   }
 
@@ -449,36 +451,37 @@ class PipManager {
     const hlsUrl = this.hlsUrl
     if (!hlsUrl) return
 
-    console.log(`[PiP] preloading HLS: ${hlsUrl}`)
+    this.plog(`preloading HLS: ${hlsUrl.slice(-40)}`)
 
     this.hlsVideo = document.createElement('video')
     this.hlsVideo.muted = true
     this.hlsVideo.playsInline = true
     this.hlsVideo.autoplay = false
     this.hlsVideo.controls = false
-    this.hlsVideo.preload = 'auto' // ให้ iOS โหลด segment แรก → canplay/loadeddata fire ได้
+    this.hlsVideo.preload = 'auto'
     this.hlsVideo.disablePictureInPicture = false
     this.hlsVideo.disableRemotePlayback = true
     this.hlsVideo.setAttribute('playsinline', '')
     this.hlsVideo.setAttribute('webkit-playsinline', '')
     this.hlsVideo.setAttribute('data-pip-manager', 'hls')
-    // ซ่อน controls: controlsList attribute (Chrome/Edge)
     this.hlsVideo.setAttribute('controlsList', 'nofullscreen nodownload noremoteplayback noplaybackrate')
-    // ซ่อน controls: x-webkit attributes
     this.hlsVideo.setAttribute('x-webkit-airplay', 'deny')
-    // ต้อง ON-SCREEN + opacity≥0.01 — iOS ไม่ทำ PiP กับ element ที่ invisible/off-screen
-    // opacity:0 หรือ bottom:-100px จะทำให้ iOS throttle load และไม่โชว์ PiP window
     this.hlsVideo.style.cssText = 'position:fixed;bottom:0;right:0;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-1;'
     document.body.appendChild(this.hlsVideo)
 
-    // ─── Debug event listeners ───────────────────────────────────────────────
-    // ทุก event ที่สำคัญจะถูก log เพื่อ diagnose ปัญหา
-    const v = this.hlsVideo
+    this.attachHlsDebugListeners(this.hlsVideo)
+    this.attachHlsPipExitListeners(this.hlsVideo)
+
+    this.hlsLoadWithRetry(hlsUrl)
+  }
+
+  // Debug event listeners — แยกเป็น method เพื่อ reuse
+  private attachHlsDebugListeners(v: HTMLVideoElement): void {
     v.addEventListener('loadstart',      () => this.plog('ev:loadstart'))
     v.addEventListener('durationchange', () => this.plog(`ev:durationchange dur=${v.duration}`))
     v.addEventListener('loadedmetadata', () => this.plog(`ev:loadedmetadata rs=${v.readyState}`))
-    v.addEventListener('loadeddata',     () => this.plog(`ev:loadeddata rs=${v.readyState}`))
-    v.addEventListener('canplay',        () => this.plog(`ev:canplay rs=${v.readyState}`))
+    v.addEventListener('loadeddata',     () => this.plog(`ev:loadeddata rs=${v.readyState} buf=${this.fmtBuf(v)}`))
+    v.addEventListener('canplay',        () => this.plog(`ev:canplay rs=${v.readyState} buf=${this.fmtBuf(v)}`))
     v.addEventListener('canplaythrough', () => this.plog(`ev:canplaythrough rs=${v.readyState}`))
     v.addEventListener('playing',        () => this.plog(`ev:playing t=${v.currentTime.toFixed(2)}`))
     v.addEventListener('waiting',        () => this.plog(`ev:waiting t=${v.currentTime.toFixed(2)} rs=${v.readyState}`))
@@ -491,36 +494,44 @@ class PipManager {
       const e = (v as any).error
       this.plog(`ev:error code=${e?.code} msg=${e?.message}`)
     })
-    // timeupdate ทุก ~250ms — ยืนยันว่า currentTime เดิน
     let lastLoggedTime = -1
     v.addEventListener('timeupdate', () => {
       if (Math.abs(v.currentTime - lastLoggedTime) >= 1) {
         lastLoggedTime = v.currentTime
-        this.plog(`ev:timeupdate t=${v.currentTime.toFixed(1)}s`)
+        this.plog(`ev:timeupdate t=${v.currentTime.toFixed(1)}s rs=${v.readyState}`)
       }
     })
-    // ─────────────────────────────────────────────────────────────────────────
+  }
 
-    // Listen for PiP exit events — re-preload after exit so next tap works immediately
+  private fmtBuf(v: HTMLVideoElement): string {
+    if (v.buffered.length === 0) return '-'
+    return `${v.buffered.start(0).toFixed(1)}-${v.buffered.end(v.buffered.length - 1).toFixed(1)}s`
+  }
+
+  // PiP exit listeners — ไม่ทำลาย video element แค่ mark ready สำหรับ re-entry
+  private attachHlsPipExitListeners(v: HTMLVideoElement): void {
     const onPipExit = () => {
       this.isActive = false
       this.stopMediaSessionKeepalive()
       this.notifyStateListeners(false)
-      this.plog('PiP exited — re-preloading for next tap')
-      // Defer: let iOS finish the transition before reinitialising the element
-      setTimeout(() => {
-        if (this.hlsUrl) this.preloadHlsVideo()
-      }, 600)
+
+      // ตรวจว่า video ยังใช้ได้ไหม — ถ้า rs≥2 + ไม่มี error → mark ready ทันที
+      if (this.hlsVideo && this.hlsVideo === v && !v.error && v.readyState >= 2) {
+        this.hlsReady = true
+        this.plog(`PiP exited — video reusable rs=${v.readyState} → hlsReady=true`)
+      } else {
+        this.plog(`PiP exited — video broken (rs=${v.readyState} err=${v.error?.code}) → re-preloading`)
+        setTimeout(() => {
+          if (this.hlsUrl) this.preloadHlsVideo()
+        }, 600)
+      }
     }
-    this.hlsVideo.addEventListener('leavepictureinpicture', onPipExit)
-    this.hlsVideo.addEventListener('webkitpresentationmodechanged', () => {
-      const mode = (this.hlsVideo as any)?.webkitPresentationMode
+    v.addEventListener('leavepictureinpicture', onPipExit)
+    v.addEventListener('webkitpresentationmodechanged', () => {
+      const mode = (v as any)?.webkitPresentationMode
+      this.plog(`ev:webkitpresentationmodechanged → ${mode}`)
       if (mode === 'inline') onPipExit()
     })
-
-    // เริ่ม load + retry อัตโนมัติเมื่อ stream ยังไม่พร้อม
-    // (server อาจเพิ่ง restart — FFmpeg ต้องการ 1-2 วิก่อนมี segment แรก)
-    this.hlsLoadWithRetry(hlsUrl)
   }
 
   private hlsLoadWithRetry(expectedUrl: string, attempt = 0): void {
@@ -531,67 +542,78 @@ class PipManager {
     }
     if (!this.hlsVideo) return
 
+    // Generation counter — ป้องกัน stale closure จาก load ก่อนหน้า
+    this.hlsLoadGeneration++
+    const gen = this.hlsLoadGeneration
+
     this.hlsLoading = true
     const v = this.hlsVideo
-    this.plog(`HLS load attempt ${attempt + 1}`)
+    this.plog(`HLS load attempt ${attempt + 1} gen=${gen}`)
 
-    // ใช้ canplay แทน fetch HEAD (CORS-safe)
-    // canplay = readyState ≥ 3 → iOS มี data พอจะเล่นได้จริง
-    // loadeddata (rs=2) แปลว่าโหลดได้แค่ frame ปัจจุบัน ยังไม่มี future data
-    //   → ถ้า canplay ไม่มาใน 8s แสดงว่า iOS ค้างที่ rs=2 → retry ใหม่
-    let loadedDataTimeoutId: ReturnType<typeof setTimeout> | null = null
+    const isStale = () => gen !== this.hlsLoadGeneration || this.hlsUrl !== expectedUrl || this.hlsReady
 
     const cleanup = () => {
       v.removeEventListener('canplay', onCanPlay)
       v.removeEventListener('loadeddata', onLoadedData)
       v.removeEventListener('error', onError)
-      if (loadedDataTimeoutId) { clearTimeout(loadedDataTimeoutId); loadedDataTimeoutId = null }
+      if (this.hlsLoadedDataTimeoutId) {
+        clearTimeout(this.hlsLoadedDataTimeoutId)
+        this.hlsLoadedDataTimeoutId = null
+      }
     }
 
     const setReady = (event: string) => {
-      if (this.hlsUrl !== expectedUrl || this.hlsReady) { cleanup(); return }
+      if (isStale()) { cleanup(); return }
       cleanup()
       this.hlsReady = true
       this.hlsLoading = false
-      const rs = v.readyState
-      const buf = v.buffered.length > 0 ? `${v.buffered.end(v.buffered.length - 1).toFixed(1)}s` : '-'
-      this.plog(`HLS ready via ${event} (attempt=${attempt + 1} rs=${rs} buf=${buf})`)
+      this.plog(`HLS ready via ${event} (attempt=${attempt + 1} rs=${v.readyState} buf=${this.fmtBuf(v)})`)
     }
 
     const onCanPlay = () => setReady('canplay')
 
     const onLoadedData = () => {
-      // rs=2 เท่านั้น ยังไม่ ready — รอ canplay อีก 8s ก่อน fallback retry
-      this.plog(`ev:loadeddata rs=${v.readyState} — waiting for canplay (8s)`)
-      loadedDataTimeoutId = setTimeout(() => {
-        if (this.hlsUrl !== expectedUrl || this.hlsReady) return
-        this.plog(`canplay timeout rs=${v.readyState} → retry with fresh URL`)
-        cleanup()
-        this.hlsLoading = false
-        // force fresh reload แทน retry ด้วย URL เดิม
-        v.removeAttribute('src')
-        v.load()
-        const sep = expectedUrl.includes('?') ? '&' : '?'
-        setTimeout(() => {
-          if (this.hlsUrl === expectedUrl && !this.hlsReady && this.hlsVideo) {
-            this.hlsVideo.src = `${expectedUrl}${sep}_t=${Date.now()}`
-            this.hlsLoadWithRetry(expectedUrl, attempt + 1)
-          }
-        }, 500)
-      }, 8000)
+      if (isStale()) { cleanup(); return }
+
+      // iOS live HLS: canplay (rs≥3) มักไม่ fire สำหรับ live stream
+      // rs=2 (HAVE_CURRENT_DATA) = มี frame แรกแล้ว → เพียงพอสำหรับ PiP entry
+      // ถ้า canplay มาใน 3s ก็ใช้ canplay (ดีกว่า)
+      // ถ้า 3s ผ่านแล้ว canplay ไม่มา → accept rs=2 เป็น ready
+      this.plog(`loadeddata rs=${v.readyState} buf=${this.fmtBuf(v)} — wait canplay 3s or accept rs=2`)
+      this.hlsLoadedDataTimeoutId = setTimeout(() => {
+        this.hlsLoadedDataTimeoutId = null
+        if (isStale()) return
+        if (v.readyState >= 2) {
+          // Accept rs=2 — iOS live HLS มักไม่ไปถึง rs=3
+          setReady(`loadeddata-accept(rs=${v.readyState})`)
+        } else {
+          // rs dropped below 2 → retry with fresh URL
+          this.plog(`rs dropped to ${v.readyState} → retry with fresh URL`)
+          cleanup()
+          this.hlsLoading = false
+          v.removeAttribute('src')
+          v.load()
+          const sep = expectedUrl.includes('?') ? '&' : '?'
+          this.hlsRetryTimeoutId = setTimeout(() => {
+            if (!isStale() && this.hlsVideo) {
+              this.hlsVideo.src = `${expectedUrl}${sep}_t=${Date.now()}`
+              this.hlsLoadWithRetry(expectedUrl, attempt + 1)
+            }
+          }, 500)
+        }
+      }, 3000)
     }
+
     const onError = () => {
       cleanup()
-      if (this.hlsUrl !== expectedUrl || this.hlsReady) { this.hlsLoading = false; return }
+      if (isStale()) { this.hlsLoading = false; return }
       const code = (v as any).error?.code ?? '?'
       const delay = attempt < 8 ? 2000 : 10000
-      this.plog(`HLS error code=${code} → retry in ${delay / 1000}s`)
-      // reset src ก่อน retry เพื่อ clear error state
+      this.plog(`HLS error code=${code} → retry in ${delay / 1000}s (gen=${gen})`)
       v.removeAttribute('src')
       v.load()
       this.hlsRetryTimeoutId = setTimeout(() => {
-        if (this.hlsUrl === expectedUrl && !this.hlsReady && this.hlsVideo) {
-          // cache-bust on retry so iOS fetches the latest playlist, not a stale/deleted one
+        if (!isStale() && this.hlsVideo) {
           const sep = expectedUrl.includes('?') ? '&' : '?'
           this.hlsVideo.src = `${expectedUrl}${sep}_t=${Date.now()}`
           this.hlsLoadWithRetry(expectedUrl, attempt + 1)
@@ -603,7 +625,7 @@ class PipManager {
     v.addEventListener('loadeddata', onLoadedData, { once: true })
     v.addEventListener('error', onError, { once: true })
 
-    // Set src — always cache-bust the m3u8 URL so iOS fetches the current playlist
+    // Set src — always cache-bust
     if (!v.src || v.src === window.location.href) {
       const sep = expectedUrl.includes('?') ? '&' : '?'
       v.src = `${expectedUrl}${sep}_t=${Date.now()}`
@@ -667,34 +689,36 @@ class PipManager {
       return false
     }
 
+    const v = this.hlsVideo
+
     // iOS gesture requirement: webkitSetPresentationMode ต้องถูก call
     // ทันทีหลัง user tap — ห้าม await นาน ไม่งั้น gesture window หมดอายุ
     if (!this.hlsReady) {
-      this.plog(`HLS not ready (loading=${this.hlsLoading}) — retry & wait next tap`)
-      if (!this.hlsLoading) {
-        this.hlsLoadWithRetry(this.hlsUrl)
+      // Fallback: ถ้า video มี rs≥2 แม้ hlsReady ไม่ได้ set (เช่น race condition)
+      // ลองเข้า PiP เลย — ดีกว่าตก popup
+      if (v.readyState >= 2 && !v.error) {
+        this.plog(`HLS not "ready" but rs=${v.readyState} — forcing PiP attempt`)
+        this.hlsReady = true
+      } else {
+        this.plog(`HLS not ready rs=${v.readyState} loading=${this.hlsLoading} — wait next tap`)
+        if (!this.hlsLoading) {
+          this.hlsLoadWithRetry(this.hlsUrl)
+        }
+        return false
       }
-      return false
     }
 
     try {
-      this.plog(`startHlsPip rs=${this.hlsVideo.readyState} buf=${this.hlsVideo.buffered.length > 0 ? this.hlsVideo.buffered.end(this.hlsVideo.buffered.length-1).toFixed(1)+'s' : '-'}`)
-      // Setup media session BEFORE entering PiP — ซ่อน controls ตั้งแต่แรก
+      this.plog(`startHlsPip rs=${v.readyState} buf=${this.fmtBuf(v)}`)
       this.setupViewOnlyMediaSession()
 
-      // ไม่ต้อง freshUrl หรือ load() — ใช้ preloaded video ที่โหลดไว้แล้ว (rs≥3)
-      // การ load() ใหม่ตอนกด PiP ทำให้ readyState ตกเป็น 0 → iOS ไม่โชว์ PiP window
-      // เพราะ webkitSetPresentationMode ต้องการ video ที่มี frame พร้อมแสดง
       this.plog('play()...')
-      const playPromise = this.hlsVideo.play()
+      const playPromise = v.play()
 
-      if ((this.hlsVideo as any).webkitSupportsPresentationMode) {
-        // iOS: เรียก synchronously ก่อน await — gesture window ยังอยู่
+      if ((v as any).webkitSupportsPresentationMode) {
+        // iOS: synchronous call — gesture window ยังอยู่
         this.plog('webkitSetPresentationMode pip')
-        ;(this.hlsVideo as any).webkitSetPresentationMode('picture-in-picture')
-        // Handle play() rejection without falling back to popup:
-        // play() may reject immediately (no data yet) but PiP mode is already set.
-        // We catch and retry — the video will play once the first segment downloads.
+        ;(v as any).webkitSetPresentationMode('picture-in-picture')
         await playPromise.catch((err: any) => {
           this.plog(`play() rejected: ${err?.name} — retry in 1s`)
           setTimeout(() => {
@@ -703,10 +727,9 @@ class PipManager {
             }
           }, 1000)
         })
-      } else if ('requestPictureInPicture' in this.hlsVideo) {
-        // Desktop: ต้อง await play ก่อน
+      } else if ('requestPictureInPicture' in v) {
         await playPromise
-        await (this.hlsVideo as any).requestPictureInPicture()
+        await (v as any).requestPictureInPicture()
       } else {
         throw new Error('PiP API not available')
       }
@@ -818,10 +841,15 @@ class PipManager {
 
   private cleanupHlsVideo(): void {
     this.hlsLoading = false
-    this.hlsReady = false  // reset so data listener can re-trigger preloadHlsVideo
+    this.hlsReady = false
+    this.hlsLoadGeneration++ // invalidate all in-flight closures
     if (this.hlsRetryTimeoutId) {
       clearTimeout(this.hlsRetryTimeoutId)
       this.hlsRetryTimeoutId = null
+    }
+    if (this.hlsLoadedDataTimeoutId) {
+      clearTimeout(this.hlsLoadedDataTimeoutId)
+      this.hlsLoadedDataTimeoutId = null
     }
     if (this.hlsVideo) {
       this.hlsVideo.pause()
