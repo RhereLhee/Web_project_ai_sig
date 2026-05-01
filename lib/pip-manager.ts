@@ -535,15 +535,17 @@ class PipManager {
     const v = this.hlsVideo
     this.plog(`HLS load attempt ${attempt + 1}`)
 
-    // ใช้ canplay + loadeddata แทน fetch HEAD
-    // fetch HEAD ถูก CORS block (server อนุญาตแค่ GET/OPTIONS) → hlsReady ไม่เคย true
-    // canplay  = readyState ≥ 3 (มี data พอเล่น)
-    // loadeddata = readyState ≥ 2 (iOS อาจไม่ fire canplay ถ้าค้างที่ rs=2)
-    // รับแบบไหนก็ได้ก่อน → hlsReady = true
+    // ใช้ canplay แทน fetch HEAD (CORS-safe)
+    // canplay = readyState ≥ 3 → iOS มี data พอจะเล่นได้จริง
+    // loadeddata (rs=2) แปลว่าโหลดได้แค่ frame ปัจจุบัน ยังไม่มี future data
+    //   → ถ้า canplay ไม่มาใน 8s แสดงว่า iOS ค้างที่ rs=2 → retry ใหม่
+    let loadedDataTimeoutId: ReturnType<typeof setTimeout> | null = null
+
     const cleanup = () => {
       v.removeEventListener('canplay', onCanPlay)
       v.removeEventListener('loadeddata', onLoadedData)
       v.removeEventListener('error', onError)
+      if (loadedDataTimeoutId) { clearTimeout(loadedDataTimeoutId); loadedDataTimeoutId = null }
     }
 
     const setReady = (event: string) => {
@@ -557,7 +559,27 @@ class PipManager {
     }
 
     const onCanPlay = () => setReady('canplay')
-    const onLoadedData = () => setReady('loadeddata')
+
+    const onLoadedData = () => {
+      // rs=2 เท่านั้น ยังไม่ ready — รอ canplay อีก 8s ก่อน fallback retry
+      this.plog(`ev:loadeddata rs=${v.readyState} — waiting for canplay (8s)`)
+      loadedDataTimeoutId = setTimeout(() => {
+        if (this.hlsUrl !== expectedUrl || this.hlsReady) return
+        this.plog(`canplay timeout rs=${v.readyState} → retry with fresh URL`)
+        cleanup()
+        this.hlsLoading = false
+        // force fresh reload แทน retry ด้วย URL เดิม
+        v.removeAttribute('src')
+        v.load()
+        const sep = expectedUrl.includes('?') ? '&' : '?'
+        setTimeout(() => {
+          if (this.hlsUrl === expectedUrl && !this.hlsReady && this.hlsVideo) {
+            this.hlsVideo.src = `${expectedUrl}${sep}_t=${Date.now()}`
+            this.hlsLoadWithRetry(expectedUrl, attempt + 1)
+          }
+        }, 500)
+      }, 8000)
+    }
     const onError = () => {
       cleanup()
       if (this.hlsUrl !== expectedUrl || this.hlsReady) { this.hlsLoading = false; return }
