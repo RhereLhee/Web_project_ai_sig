@@ -569,7 +569,9 @@ class PipManager {
       v.load()
       this.hlsRetryTimeoutId = setTimeout(() => {
         if (this.hlsUrl === expectedUrl && !this.hlsReady && this.hlsVideo) {
-          this.hlsVideo.src = expectedUrl
+          // cache-bust on retry so iOS fetches the latest playlist, not a stale/deleted one
+          const sep = expectedUrl.includes('?') ? '&' : '?'
+          this.hlsVideo.src = `${expectedUrl}${sep}_t=${Date.now()}`
           this.hlsLoadWithRetry(expectedUrl, attempt + 1)
         }
       }, delay)
@@ -579,9 +581,10 @@ class PipManager {
     v.addEventListener('loadeddata', onLoadedData, { once: true })
     v.addEventListener('error', onError, { once: true })
 
-    // Set src ถ้ายังไม่ได้ตั้ง (first attempt) — subsequent retries ตั้งใน onError
+    // Set src — always cache-bust the m3u8 URL so iOS fetches the current playlist
     if (!v.src || v.src === window.location.href) {
-      v.src = expectedUrl
+      const sep = expectedUrl.includes('?') ? '&' : '?'
+      v.src = `${expectedUrl}${sep}_t=${Date.now()}`
     }
   }
 
@@ -714,16 +717,58 @@ class PipManager {
           return
         }
 
-        // Stall detection: currentTime not advancing + waiting for data
-        if (v.readyState < 3 && v.currentTime === lastCurrentTime && lastCurrentTime >= 0) {
+        // Stall detection: currentTime not advancing
+        const timeStuck = v.readyState < 3 && v.currentTime === lastCurrentTime && lastCurrentTime >= 0
+        if (timeStuck) {
           stuckTicks++
-          if (stuckTicks >= 3) {
-            // Stalled 6s+ — force a fresh play() to re-request current segment
-            this.plog(`stall t=${v.currentTime.toFixed(1)}s rs=${v.readyState} → play()`)
-            stuckTicks = 0
+
+          if (stuckTicks === 3) {
+            // 6s stall — try play() first (may unstick if just a brief rebuffer)
+            this.plog(`stall 6s t=${v.currentTime.toFixed(1)}s rs=${v.readyState} → play()`)
             v.play().catch(() => {})
+
+          } else if (stuckTicks === 8) {
+            // 16s stall — src swap to fresh URL (cache-bust, forces new playlist fetch)
+            const url = this.hlsUrl ?? ''
+            const sep = url.includes('?') ? '&' : '?'
+            const freshUrl = `${url}${sep}_t=${Date.now()}`
+            this.plog(`stall 16s → fresh src ${freshUrl.slice(-20)}`)
+            v.src = freshUrl
+            v.load()
+            v.play().catch(() => {})
+
+          } else if (stuckTicks === 15) {
+            // 30s stall — full teardown + rebuild video element
+            this.plog(`stall 30s → full HLS reload`)
+            stuckTicks = 0
+            this.stopMediaSessionKeepalive()
+            // Tear down current video, rebuild with fresh segment window
+            const url = this.hlsUrl
+            if (url) {
+              // Remove old element
+              if (v.parentNode) v.parentNode.removeChild(v)
+              this.hlsVideo = null
+              this.hlsReady = false
+              this.hlsLoading = false
+              // Re-init preload then re-enter PiP once ready
+              this.preloadHlsVideo()
+              // Re-trigger PiP when ready (up to 10s)
+              let waited = 0
+              const pollReady = setInterval(() => {
+                waited++
+                if (this.hlsReady && this.hlsVideo && this.isActive) {
+                  clearInterval(pollReady)
+                  this.plog('HLS rebuilt — re-entering PiP')
+                  this.startHlsPip().catch(() => {})
+                } else if (waited > 20 || !this.isActive) {
+                  clearInterval(pollReady)
+                }
+              }, 500)
+            }
+            return
           }
         } else {
+          if (stuckTicks > 0) this.plog(`stall cleared t=${v.currentTime.toFixed(1)}s`)
           stuckTicks = 0
         }
         lastCurrentTime = v.currentTime
