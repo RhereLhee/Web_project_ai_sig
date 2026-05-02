@@ -82,6 +82,11 @@ class PipManager {
   private debugRefreshId: ReturnType<typeof setInterval> | null = null
   private logHistory: string[] = []
 
+  // HLS push tracking
+  private hlsPushStatus = 'never'   // 'never' | 'ok' | 'fail:...'
+  private hlsPushCount = 0
+  private hlsPushLastTime = 0
+
   // Listeners
   private stateListeners: Set<PipStateListener> = new Set()
 
@@ -319,6 +324,10 @@ class PipManager {
     const liveData = signalService.getData()
     const symCount = liveData ? Object.keys(liveData.symbols || {}).length : 0
     const stale = liveData?.stale ? '(STALE)' : ''
+    // Push age
+    const pushAge = this.hlsPushLastTime > 0
+      ? `${Math.round((Date.now() - this.hlsPushLastTime) / 1000)}s ago`
+      : 'never'
     this.debugStateEl.textContent = [
       `mode:${this.pipMode} | active:${this.isActive}`,
       `ready:${this.hlsReady} | loading:${this.hlsLoading} gen:${this.hlsLoadGeneration}`,
@@ -328,6 +337,7 @@ class PipManager {
       `paused:${v?.paused??'?'} | ended:${v?.ended??'?'}`,
       `err:${(v as any)?.error?.code ?? 'none'}`,
       `data:${symCount}sym cd:${this.globalCountdown}s ${stale}`,
+      `push:${this.hlsPushStatus} (${pushAge})`,
     ].join('\n')
   }
 
@@ -365,8 +375,8 @@ class PipManager {
       }
 
       // Push ข้อมูลจริงจาก WebSocket ไปให้ VPS render เป็น HLS frame
-      // เพราะ VPS HLS streamer อาจไม่ได้รับ bridge data โดยตรง
-      if (data.symbols && this.hlsUrl && !data.stale) {
+      // Push แม้ stale=true (ตลาดปิด) เพื่อให้ VPS แสดงข้อมูลล่าสุดจริงๆ ไม่ใช่ mock
+      if (data.symbols && Object.keys(data.symbols).length > 0 && this.hlsUrl) {
         this.pushDataToHlsServer(data)
       }
     })
@@ -451,29 +461,45 @@ class PipManager {
   // Pre-load HLS video ทันทีที่ได้ URL จาก WebSocket
   // Push ข้อมูลจริงจาก WebSocket ไปให้ VPS render เป็น HLS frame
   // แก้ปัญหา: VPS HLS streamer ไม่ได้รับ MT5 bridge data โดยตรง
-  // ทำให้ HLS video render จาก mock data แทนข้อมูลจริง
-  private _lastHlsPushTime = 0
   private pushDataToHlsServer(data: RealtimeData): void {
     if (!this.hlsUrl) return
-    // Rate-limit: push ไม่เกิน 1 ครั้ง/5 วิ (HLS renderer ใช้ 5 FPS, ข้อมูลแค่ update ทุก 1-5s)
+    // Rate-limit: push ไม่เกิน 1 ครั้ง/5 วิ
     const now = Date.now()
-    if (now - this._lastHlsPushTime < 5000) return
-    this._lastHlsPushTime = now
+    if (now - this.hlsPushLastTime < 5000) return
+    this.hlsPushLastTime = now
 
-    try {
-      const baseUrl = this.hlsUrl.replace(/\/stream\/.*/, '')
-      const payload = {
-        timestamp: new Date().toISOString(),
-        countdown: this.globalCountdown,
-        symbols: data.symbols,
-        mode: 'frontend_push',
+    const baseUrl = this.hlsUrl.replace(/\/stream\/.*/, '')
+    const symCount = Object.keys(data.symbols ?? {}).length
+    const staleStr = data.stale ? ' stale' : ' live'
+    this.plog(`hls/push → ${baseUrl.slice(-30)} sym=${symCount}${staleStr} cd=${this.globalCountdown}`)
+
+    const payload = {
+      timestamp: new Date().toISOString(),
+      countdown: this.globalCountdown,
+      symbols: data.symbols,
+      mode: 'frontend_push',
+      stale: !!data.stale,
+    }
+
+    fetch(`${baseUrl}/hls/push`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).then(async (res) => {
+      this.hlsPushCount++
+      if (res.ok) {
+        const json = await res.json().catch(() => ({}))
+        this.hlsPushStatus = `ok#${this.hlsPushCount} sym=${json.symbols ?? '?'}`
+        this.plog(`hls/push ✓ ${this.hlsPushStatus}`)
+      } else {
+        this.hlsPushStatus = `fail:${res.status}#${this.hlsPushCount}`
+        this.plog(`hls/push ✗ ${res.status} ${res.statusText}`)
       }
-      fetch(`${baseUrl}/hls/push`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      }).catch(() => {}) // fire-and-forget, ไม่ block ถ้า VPS offline
-    } catch {}
+    }).catch((err) => {
+      this.hlsPushCount++
+      this.hlsPushStatus = `err:${err?.message ?? err}#${this.hlsPushCount}`
+      this.plog(`hls/push err ${err?.message ?? err}`)
+    })
   }
 
   // เพื่อให้ตอนกด PiP ไม่ต้องรอ fetch/canplay iOS gesture token ไม่หมดอายุ
