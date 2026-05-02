@@ -489,7 +489,9 @@ class PipManager {
       this.hlsPushCount++
       if (res.ok) {
         const json = await res.json().catch(() => ({}))
-        this.hlsPushStatus = `ok#${this.hlsPushCount} sym=${json.symbols ?? '?'}`
+        // src: 'push_active' = VPS ใช้ push data | 'bridge_active_push_stored' = VPS มี bridge data อยู่แล้ว
+        const src = json.src ?? 'ok'
+        this.hlsPushStatus = `${src}#${this.hlsPushCount} sym=${json.symbols ?? '?'}`
         this.plog(`hls/push ✓ ${this.hlsPushStatus}`)
       } else {
         this.hlsPushStatus = `fail:${res.status}#${this.hlsPushCount}`
