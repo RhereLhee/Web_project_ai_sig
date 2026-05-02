@@ -367,15 +367,22 @@ class PipManager {
       if (data.hls_url) {
         if (data.hls_url !== this.hlsUrl) {
           this.hlsUrl = data.hls_url
-          this.preloadHlsVideo()
+          // Push ก่อน preload — VPS ต้องมี real data ก่อน FFmpeg render segment ที่ iOS จะโหลด
+          // ถ้า preload ก่อน VPS ยังใช้ mock → iOS โหลด segment ที่มี mock chart
+          if (data.symbols && Object.keys(data.symbols).length > 0) {
+            this.hlsPushLastTime = 0  // reset rate-limit ให้ push ได้ทันที
+            this.pushDataToHlsServer(data)
+          }
+          // รอ 2s หลัง push ก่อน preload — ให้ FFmpeg มีเวลา render segments ด้วย real data
+          setTimeout(() => {
+            if (this.hlsUrl === data.hls_url) this.preloadHlsVideo()
+          }, 2000)
         } else if (!this.hlsReady && !this.hlsLoading && this.hlsUrl) {
-          // URL เดิมแต่ load cycle หยุดแล้ว → เริ่มใหม่
           this.preloadHlsVideo()
         }
       }
 
       // Push ข้อมูลจริงจาก WebSocket ไปให้ VPS render เป็น HLS frame
-      // Push แม้ stale=true (ตลาดปิด) เพื่อให้ VPS แสดงข้อมูลล่าสุดจริงๆ ไม่ใช่ mock
       if (data.symbols && Object.keys(data.symbols).length > 0 && this.hlsUrl) {
         this.pushDataToHlsServer(data)
       }
@@ -576,15 +583,30 @@ class PipManager {
       this.stopMediaSessionKeepalive()
       this.notifyStateListeners(false)
 
+      // Push ข้อมูลล่าสุดก่อน re-preload — ให้ FFmpeg render segments ด้วย real data
+      // ป้องกัน next tap โหลด segment ที่ยังมี mock/old data
+      const liveData = (window as any).__signalServiceData ?? null
+      const pushBeforePreload = () => {
+        if (this.hlsUrl) {
+          this.hlsPushLastTime = 0  // reset rate-limit
+          const d = signalService.getData()
+          if (d?.symbols && Object.keys(d.symbols).length > 0) {
+            this.pushDataToHlsServer(d)
+          }
+        }
+      }
+
       // ตรวจว่า video ยังใช้ได้ไหม — ถ้า rs≥2 + ไม่มี error → mark ready ทันที
       if (this.hlsVideo && this.hlsVideo === v && !v.error && v.readyState >= 2) {
         this.hlsReady = true
         this.plog(`PiP exited — video reusable rs=${v.readyState} → hlsReady=true`)
+        pushBeforePreload()
       } else {
         this.plog(`PiP exited — video broken (rs=${v.readyState} err=${v.error?.code}) → re-preloading`)
+        pushBeforePreload()
         setTimeout(() => {
           if (this.hlsUrl) this.preloadHlsVideo()
-        }, 600)
+        }, 2000)  // รอ 2s หลัง push ก่อน preload
       }
     }
     v.addEventListener('leavepictureinpicture', onPipExit)
@@ -823,54 +845,42 @@ class PipManager {
           return
         }
 
-        // Stall detection: currentTime not advancing
+        // Stall detection: currentTime not advancing + no future data
         const timeStuck = v.readyState < 3 && v.currentTime === lastCurrentTime && lastCurrentTime >= 0
         if (timeStuck) {
           stuckTicks++
 
           if (stuckTicks === 3) {
-            // 6s stall — try play() first (may unstick if just a brief rebuffer)
+            // 6s stall — try play()
             this.plog(`stall 6s t=${v.currentTime.toFixed(1)}s rs=${v.readyState} → play()`)
             v.play().catch(() => {})
 
           } else if (stuckTicks === 8) {
-            // 16s stall — src swap to fresh URL (cache-bust, forces new playlist fetch)
-            const url = this.hlsUrl ?? ''
-            const sep = url.includes('?') ? '&' : '?'
-            const freshUrl = `${url}${sep}_t=${Date.now()}`
-            this.plog(`stall 16s → fresh src ${freshUrl.slice(-20)}`)
-            v.src = freshUrl
-            v.load()
-            v.play().catch(() => {})
+            // 16s stall — pause + resume (soft reset ไม่ทำลาย PiP state)
+            // ห้ามใช้ v.load() ตอน PiP active — จะทำให้ AbortError + iOS เตะออกจาก PiP
+            this.plog(`stall 16s → pause+play`)
+            v.pause()
+            setTimeout(() => {
+              if (this.isActive && v === this.hlsVideo) {
+                v.play().catch(() => {})
+              }
+            }, 300)
 
           } else if (stuckTicks === 15) {
-            // 30s stall — full teardown + rebuild video element
-            this.plog(`stall 30s → full HLS reload`)
+            // 30s stall — ออก PiP อัตโนมัติ + re-preload พร้อม real data
+            // ไม่ force re-enter PiP (ต้องเป็น gesture จาก user เท่านั้น)
+            this.plog(`stall 30s → auto-exit PiP, re-preload`)
             stuckTicks = 0
             this.stopMediaSessionKeepalive()
-            // Tear down current video, rebuild with fresh segment window
-            const url = this.hlsUrl
-            if (url) {
-              // Remove old element
-              if (v.parentNode) v.parentNode.removeChild(v)
-              this.hlsVideo = null
-              this.hlsReady = false
-              this.hlsLoading = false
-              // Re-init preload then re-enter PiP once ready
-              this.preloadHlsVideo()
-              // Re-trigger PiP when ready (up to 10s)
-              let waited = 0
-              const pollReady = setInterval(() => {
-                waited++
-                if (this.hlsReady && this.hlsVideo && this.isActive) {
-                  clearInterval(pollReady)
-                  this.plog('HLS rebuilt — re-entering PiP')
-                  this.startHlsPip().catch(() => {})
-                } else if (waited > 20 || !this.isActive) {
-                  clearInterval(pollReady)
-                }
-              }, 500)
-            }
+            // Exit PiP gracefully
+            try { ;(v as any).webkitSetPresentationMode?.('inline') } catch {}
+            // Push + re-preload สำหรับ next tap
+            this.hlsPushLastTime = 0
+            const d = signalService.getData()
+            if (d?.symbols) this.pushDataToHlsServer(d)
+            setTimeout(() => {
+              if (this.hlsUrl && !this.isActive) this.preloadHlsVideo()
+            }, 2000)
             return
           }
         } else {
