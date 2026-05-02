@@ -328,6 +328,8 @@ class PipManager {
     const pushAge = this.hlsPushLastTime > 0
       ? `${Math.round((Date.now() - this.hlsPushLastTime) / 1000)}s ago`
       : 'never'
+    // HLS URL summary (last 25 chars)
+    const hlsShort = this.hlsUrl ? this.hlsUrl.slice(-25) : 'none'
     this.debugStateEl.textContent = [
       `mode:${this.pipMode} | active:${this.isActive}`,
       `ready:${this.hlsReady} | loading:${this.hlsLoading} gen:${this.hlsLoadGeneration}`,
@@ -338,6 +340,7 @@ class PipManager {
       `err:${(v as any)?.error?.code ?? 'none'}`,
       `data:${symCount}sym cd:${this.globalCountdown}s ${stale}`,
       `push:${this.hlsPushStatus} (${pushAge})`,
+      `url:…${hlsShort}`,
     ].join('\n')
   }
 
@@ -635,10 +638,35 @@ class PipManager {
 
     const isStale = () => gen !== this.hlsLoadGeneration || this.hlsUrl !== expectedUrl || this.hlsReady
 
+    // Stall timeout — iOS fires 'stalled' at t=0 then stops trying
+    // canplay/loadeddata/error never fire → we're stuck forever
+    // Solution: if loadeddata doesn't arrive within 12s → force retry with fresh URL
+    let loadedDataArrivedId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      loadedDataArrivedId = null
+      if (isStale()) return
+      const currentRs = v.readyState
+      this.plog(`stall-timeout 12s rs=${currentRs} buf=${this.fmtBuf(v)} → retry fresh URL`)
+      cleanup()
+      this.hlsLoading = false
+      v.removeAttribute('src')
+      v.load()
+      const sep = expectedUrl.includes('?') ? '&' : '?'
+      this.hlsRetryTimeoutId = setTimeout(() => {
+        if (!isStale() && this.hlsVideo) {
+          this.hlsVideo.src = `${expectedUrl}${sep}_t=${Date.now()}`
+          this.hlsLoadWithRetry(expectedUrl, attempt + 1)
+        }
+      }, 500)
+    }, 12000)
+
     const cleanup = () => {
       v.removeEventListener('canplay', onCanPlay)
       v.removeEventListener('loadeddata', onLoadedData)
       v.removeEventListener('error', onError)
+      if (loadedDataArrivedId !== null) {
+        clearTimeout(loadedDataArrivedId)
+        loadedDataArrivedId = null
+      }
       if (this.hlsLoadedDataTimeoutId) {
         clearTimeout(this.hlsLoadedDataTimeoutId)
         this.hlsLoadedDataTimeoutId = null
@@ -663,6 +691,11 @@ class PipManager {
       // ถ้า canplay มาใน 3s ก็ใช้ canplay (ดีกว่า)
       // ถ้า 3s ผ่านแล้ว canplay ไม่มา → accept rs=2 เป็น ready
       this.plog(`loadeddata rs=${v.readyState} buf=${this.fmtBuf(v)} — wait canplay 3s or accept rs=2`)
+      // Cancel the stall-timeout since loadeddata arrived
+      if (loadedDataArrivedId !== null) {
+        clearTimeout(loadedDataArrivedId)
+        loadedDataArrivedId = null
+      }
       this.hlsLoadedDataTimeoutId = setTimeout(() => {
         this.hlsLoadedDataTimeoutId = null
         if (isStale()) return
