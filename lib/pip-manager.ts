@@ -57,11 +57,13 @@ class PipManager {
 
   // State
   private isActive = false
+  private isStarting = false  // guard double-tap: prevents concurrent start() calls
   private isSupported = false
   private pipMode: PipMode = 'hls'
   private renderLoopId: number | null = null
   private lastRenderTime = 0
   private frameInterval = 1000 / PIP_FPS
+  private playPending = false  // guard concurrent play() calls in keepalive
 
   // Data (cached from signal service)
   private symbolData: Record<string, SignalData> = {}
@@ -361,7 +363,7 @@ class PipManager {
     }
 
     this.debugStateEl.textContent = [
-      `mode:${this.pipMode} | active:${this.isActive}`,
+      `mode:${this.pipMode} | active:${this.isActive} starting:${this.isStarting}`,
       `ready:${this.hlsReady} | loading:${this.hlsLoading} gen:${this.hlsLoadGeneration}`,
       `rs:${rs}(${rsLabels[rs]??'?'}) net:${net}(${netLabels[net]??'?'})`,
       `t:${v ? v.currentTime.toFixed(2)+'s' : '?'} | dur:${v ? (isFinite(v.duration)?v.duration.toFixed(1):'∞') : '?'}`,
@@ -483,49 +485,64 @@ class PipManager {
   }
 
   async start(): Promise<void> {
-    if (this.isActive) return
+    if (this.isActive || this.isStarting) return
+    this.isStarting = true
 
-    // Sync ข้อมูลล่าสุดจาก signalService ก่อนเปิด PiP
-    // ป้องกัน popup render loop วาด "Loading..." เพราะ listener ยังไม่ fire
-    const currentData = signalService.getData()
-    if (currentData) {
-      if (currentData.symbols) this.symbolData = currentData.symbols
-      if (currentData.countdown !== undefined) {
-        this.globalCountdown = currentData.stale ? 0 : currentData.countdown
-      } else {
-        for (const sym of Object.values(currentData.symbols || {})) {
-          if (sym.countdown !== undefined) {
-            this.globalCountdown = currentData.stale ? 0 : sym.countdown
-            break
+    try {
+      // Sync ข้อมูลล่าสุดจาก signalService ก่อนเปิด PiP
+      const currentData = signalService.getData()
+      if (currentData) {
+        if (currentData.symbols) this.symbolData = currentData.symbols
+        if (currentData.countdown !== undefined) {
+          this.globalCountdown = currentData.stale ? 0 : currentData.countdown
+        } else {
+          for (const sym of Object.values(currentData.symbols || {})) {
+            if (sym.countdown !== undefined) {
+              this.globalCountdown = currentData.stale ? 0 : sym.countdown
+              break
+            }
           }
         }
       }
-    }
 
-    const android = this.isAndroid()
+      const isIOS = this.isIOS()
+      const android = this.isAndroid()
+      console.log(`[PiP] start() — hlsUrl=${!!this.hlsUrl} hlsReady=${this.hlsReady} iOS=${isIOS} android=${android}`)
 
-    // HLS PiP — ลองทุก platform รวมถึง iOS
-    // iOS Safari รองรับ HLS + webkit PiP นี่คือ path ที่ดีที่สุดสำหรับ iOS
-    // Android/Desktop ก็รองรับ HLS video PiP ลอยเหนือ app ได้เลย
-    console.log(`[PiP] start() — hlsUrl=${!!this.hlsUrl} hlsReady=${this.hlsReady} android=${android} iOS=${this.isIOS()}`)
-
-    const hlsSuccess = await this.startHlsPip()
-    if (hlsSuccess) {
-      console.log('[PiP] → HLS PiP activated ✓')
-      return
-    }
-
-    if (!android) {
-      const nativeSuccess = await this.startCanvasPip()
-      if (nativeSuccess) {
-        console.log('[PiP] → Canvas PiP activated ✓')
+      const hlsSuccess = await this.startHlsPip()
+      if (hlsSuccess) {
+        console.log('[PiP] → HLS PiP activated ✓')
         return
       }
-    }
 
-    console.log('[PiP] → Popup fallback')
-    this.pipMode = 'popup'
-    await this.startPopupPip()
+      // iOS + HLS URL: ห้ามตก fallback — HLS เป็น path เดียวที่ลอยเหนือ app ได้บน iOS
+      // Canvas captureStream ไม่ work บน iOS Safari
+      // Popup เป็นแค่ overlay ในหน้าเว็บ ไม่ใช่ PiP จริง
+      // → รอ HLS พร้อม แล้วให้ user tap ใหม่
+      if (isIOS && this.hlsUrl) {
+        this.plog('iOS HLS not ready — skip fallback, retrying preload')
+        if (!this.hlsLoading && !this.hlsReady) {
+          this.preloadHlsVideo()
+        }
+        return
+      }
+
+      // Non-iOS: ลอง canvas PiP (Chrome/Edge desktop)
+      if (!android) {
+        const nativeSuccess = await this.startCanvasPip()
+        if (nativeSuccess) {
+          console.log('[PiP] → Canvas PiP activated ✓')
+          return
+        }
+      }
+
+      // Real fallback — เมื่อไม่มี HLS URL เลย หรือ platform ไม่รองรับ PiP จริง
+      console.log('[PiP] → Popup fallback (no HLS or PiP unsupported)')
+      this.pipMode = 'popup'
+      await this.startPopupPip()
+    } finally {
+      this.isStarting = false
+    }
   }
 
   // ============================================
@@ -902,23 +919,34 @@ class PipManager {
       this.plog(`startHlsPip rs=${v.readyState} buf=${this.fmtBuf(v)}`)
       this.setupViewOnlyMediaSession()
 
-      this.plog('play()...')
-      const playPromise = v.play()
-
       if ((v as any).webkitSupportsPresentationMode) {
-        // iOS: synchronous call — gesture window ยังอยู่
+        // iOS: play() + webkitSetPresentationMode ต้องเรียกพร้อมกัน — gesture window ยังอยู่
+        // play() มักถูก reject ด้วย AbortError เพราะ iOS PiP รับ control playback แทน → ปกติ ไม่ต้อง retry
+        this.plog('play()...')
+        this.playPending = true
+        const playPromise = v.play().finally(() => { this.playPending = false })
+
         this.plog('webkitSetPresentationMode pip')
         ;(v as any).webkitSetPresentationMode('picture-in-picture')
+
         await playPromise.catch((err: any) => {
+          if (err?.name === 'AbortError') {
+            // Expected: iOS PiP takes over playback control — system resumes automatically
+            this.plog(`play() AbortError (PiP entry expected — system handles playback)`)
+            return
+          }
           this.plog(`play() rejected: ${err?.name} — retry in 1s`)
           setTimeout(() => {
-            if (this.isActive && this.hlsVideo) {
-              this.hlsVideo.play().catch(() => {})
+            if (this.isActive && this.hlsVideo && !this.playPending) {
+              this.playPending = true
+              this.hlsVideo.play().catch(() => {}).finally(() => { this.playPending = false })
             }
           }, 1000)
         })
       } else if ('requestPictureInPicture' in v) {
-        await playPromise
+        this.plog('play()...')
+        this.playPending = true
+        await v.play().finally(() => { this.playPending = false })
         await (v as any).requestPictureInPicture()
       } else {
         throw new Error('PiP API not available')
@@ -943,10 +971,13 @@ class PipManager {
         const v = this.hlsVideo
         if (!v || !this.isActive) return
 
-        // Resume if paused by system
-        if (v.paused) {
+        // Resume if paused by system — guard concurrent play() calls
+        if (v.paused && !this.playPending) {
           this.plog('keepalive: resume paused')
-          v.play().catch(() => {})
+          this.playPending = true
+          v.play().catch((e) => {
+            if (e?.name !== 'AbortError') this.plog(`keepalive play fail: ${e?.name}`)
+          }).finally(() => { this.playPending = false })
           stuckTicks = 0
           lastCurrentTime = -1
           return
@@ -960,7 +991,10 @@ class PipManager {
           if (stuckTicks === 3) {
             // 6s stall — try play()
             this.plog(`stall 6s t=${v.currentTime.toFixed(1)}s rs=${v.readyState} → play()`)
-            v.play().catch(() => {})
+            if (!this.playPending) {
+              this.playPending = true
+              v.play().catch(() => {}).finally(() => { this.playPending = false })
+            }
 
           } else if (stuckTicks === 8) {
             // 16s stall — pause + resume (soft reset ไม่ทำลาย PiP state)
@@ -968,8 +1002,9 @@ class PipManager {
             this.plog(`stall 16s → pause+play`)
             v.pause()
             setTimeout(() => {
-              if (this.isActive && v === this.hlsVideo) {
-                v.play().catch(() => {})
+              if (this.isActive && v === this.hlsVideo && !this.playPending) {
+                this.playPending = true
+                v.play().catch(() => {}).finally(() => { this.playPending = false })
               }
             }, 300)
 
@@ -1268,6 +1303,8 @@ class PipManager {
       this.popupCtx = null
 
       this.isActive = false
+      this.isStarting = false
+      this.playPending = false
       this.stopRenderLoop()
       this.cleanupStream()
       this.notifyStateListeners(false)
