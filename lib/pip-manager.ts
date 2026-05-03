@@ -440,16 +440,16 @@ class PipManager {
       if (data.hls_url) {
         if (data.hls_url !== this.hlsUrl) {
           this.hlsUrl = data.hls_url
-          // Push ก่อน preload — VPS ต้องมี real data ก่อน FFmpeg render segment ที่ iOS จะโหลด
-          // ถ้า preload ก่อน VPS ยังใช้ mock → iOS โหลด segment ที่มี mock chart
+          // Push ก่อน preload — VPS ต้องมี real data ก่อน FFmpeg render segment
           if (data.symbols && Object.keys(data.symbols).length > 0) {
-            this.hlsPushLastTime = 0  // reset rate-limit ให้ push ได้ทันที
+            this.hlsPushLastTime = 0
             this.pushDataToHlsServer(data)
           }
-          // รอ 2s หลัง push ก่อน preload — ให้ FFmpeg มีเวลา render segments ด้วย real data
+          // รอแค่ 500ms (พอให้ FFmpeg เริ่ม render segment ใหม่) แล้ว preload เลย
+          // ดีกว่ารอ 2s — user กดปุ่ม PiP ได้เร็วขึ้น
           setTimeout(() => {
-            if (this.hlsUrl === data.hls_url) this.preloadHlsVideo()
-          }, 2000)
+            if (this.hlsUrl === data.hls_url && !this.hlsReady) this.preloadHlsVideo()
+          }, 500)
         } else if (!this.hlsReady && !this.hlsLoading && this.hlsUrl) {
           this.preloadHlsVideo()
         }
@@ -670,37 +670,34 @@ class PipManager {
     return `${v.buffered.start(0).toFixed(1)}-${v.buffered.end(v.buffered.length - 1).toFixed(1)}s`
   }
 
-  // PiP exit listeners — ไม่ทำลาย video element แค่ mark ready สำหรับ re-entry
+  // PiP exit listeners — เก็บ video ไว้สำหรับ re-entry ทันที ไม่ทำลาย
   private attachHlsPipExitListeners(v: HTMLVideoElement): void {
     const onPipExit = () => {
+      // Guard double-fire: ทั้ง leavepictureinpicture + webkitpresentationmodechanged
+      // อาจ fire ทั้งคู่สำหรับ PiP exit เดียวกัน → ใช้ isActive เป็น guard
+      if (!this.isActive) return
       this.isActive = false
+      this.isStarting = false
+      this.playPending = false
       this.stopMediaSessionKeepalive()
       this.notifyStateListeners(false)
 
-      // Push ข้อมูลล่าสุดก่อน re-preload — ให้ FFmpeg render segments ด้วย real data
-      // ป้องกัน next tap โหลด segment ที่ยังมี mock/old data
-      const liveData = (window as any).__signalServiceData ?? null
-      const pushBeforePreload = () => {
-        if (this.hlsUrl) {
-          this.hlsPushLastTime = 0  // reset rate-limit
-          const d = signalService.getData()
-          if (d?.symbols && Object.keys(d.symbols).length > 0) {
-            this.pushDataToHlsServer(d)
-          }
-        }
-      }
-
-      // ตรวจว่า video ยังใช้ได้ไหม — ถ้า rs≥2 + ไม่มี error → mark ready ทันที
+      // เก็บ video ไว้สำหรับ re-entry — ไม่ทำลาย ไม่ re-preload
       if (this.hlsVideo && this.hlsVideo === v && !v.error && v.readyState >= 2) {
         this.hlsReady = true
-        this.plog(`PiP exited — video reusable rs=${v.readyState} → hlsReady=true`)
-        pushBeforePreload()
+        v.pause()  // pause เพื่อประหยัด resource แต่ไม่ removeAttribute src
+        this.plog(`PiP exited — video kept rs=${v.readyState} → ready for instant re-entry`)
       } else {
+        // Video broken → re-preload สำหรับ next tap
         this.plog(`PiP exited — video broken (rs=${v.readyState} err=${v.error?.code}) → re-preloading`)
-        pushBeforePreload()
+        if (this.hlsUrl) {
+          this.hlsPushLastTime = 0
+          const d = signalService.getData()
+          if (d?.symbols && Object.keys(d.symbols).length > 0) this.pushDataToHlsServer(d)
+        }
         setTimeout(() => {
-          if (this.hlsUrl) this.preloadHlsVideo()
-        }, 2000)  // รอ 2s หลัง push ก่อน preload
+          if (this.hlsUrl && !this.hlsReady) this.preloadHlsVideo()
+        }, 2000)
       }
     }
     v.addEventListener('leavepictureinpicture', onPipExit)
@@ -1270,18 +1267,27 @@ class PipManager {
 
   async stop(): Promise<void> {
     try {
-      // ปิด native PiP
+      // ปิด native PiP (Canvas mode — Chrome/Edge desktop)
       if ((document as any).pictureInPictureElement) {
         await (document as any).exitPictureInPicture()
       }
 
-      // ปิด webkit PiP (Safari)
+      // ปิด webkit PiP (Safari Canvas mode)
       if (this.video && (this.video as any).webkitPresentationMode === 'picture-in-picture') {
         (this.video as any).webkitSetPresentationMode('inline')
       }
 
-      // ปิด HLS video
-      this.cleanupHlsVideo()
+      // ปิด HLS PiP — แค่ออก PiP mode ไม่ทำลาย video (เก็บไว้ re-entry ทันที)
+      // onPipExit จะ fire จาก webkitpresentationmodechanged → mark ready + pause
+      if (this.hlsVideo && (this.hlsVideo as any).webkitPresentationMode === 'picture-in-picture') {
+        (this.hlsVideo as any).webkitSetPresentationMode('inline')
+      } else if (this.hlsVideo && (this.hlsVideo as any).webkitSupportsPresentationMode) {
+        // Already inline — just pause
+        this.hlsVideo.pause()
+        if (!this.hlsVideo.error && this.hlsVideo.readyState >= 2) {
+          this.hlsReady = true
+        }
+      }
       this.stopMediaSessionKeepalive()
 
       // ปิด overlay
