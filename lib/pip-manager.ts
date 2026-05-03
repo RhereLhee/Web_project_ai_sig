@@ -445,11 +445,11 @@ class PipManager {
             this.hlsPushLastTime = 0
             this.pushDataToHlsServer(data)
           }
-          // รอแค่ 500ms (พอให้ FFmpeg เริ่ม render segment ใหม่) แล้ว preload เลย
-          // ดีกว่ารอ 2s — user กดปุ่ม PiP ได้เร็วขึ้น
+          // รอ 3s หลัง push — FFmpeg ต้อง render อย่างน้อย 1 segment ใหม่ (2s per segment)
+          // ถ้า preload เร็วกว่านี้ iOS จะโหลด segment เก่าที่ยังไม่มี real data/signals
           setTimeout(() => {
             if (this.hlsUrl === data.hls_url && !this.hlsReady) this.preloadHlsVideo()
-          }, 500)
+          }, 3000)
         } else if (!this.hlsReady && !this.hlsLoading && this.hlsUrl) {
           this.preloadHlsVideo()
         }
@@ -917,9 +917,18 @@ class PipManager {
       this.setupViewOnlyMediaSession()
 
       if ((v as any).webkitSupportsPresentationMode) {
-        // iOS: เรียก play() + webkitSetPresentationMode พร้อมกัน ห้าม await play()
-        // เหตุผล: play() ที่ rs=2 live HLS อาจค้างรอ buffer → gesture window หมดอายุ
-        // webkitSetPresentationMode ต้องอยู่ภายใน user gesture callback ถ้าไม่ทัน → ไม่ทำงาน
+        // Seek to live edge — ให้ iOS แสดง segment ล่าสุดที่มี real data/signals
+        // ไม่งั้น PiP ครั้งแรกจะแสดง segment เก่าที่ render ก่อน push data
+        if (v.buffered.length > 0) {
+          const bufEnd = v.buffered.end(v.buffered.length - 1)
+          if (bufEnd > 1) {
+            v.currentTime = Math.max(0, bufEnd - 0.5)
+            this.plog(`seek to live edge t=${v.currentTime.toFixed(1)}s (buf end=${bufEnd.toFixed(1)}s)`)
+          }
+        }
+
+        // เรียก play() + webkitSetPresentationMode พร้อมกัน ห้าม await play()
+        // play() ที่ rs=2 live HLS อาจค้างรอ buffer → gesture window หมดอายุ
         // play() AbortError ตอน PiP entry = ปกติ (iOS takes over) → keepalive จะ resume
         this.plog('play()...')
         this.playPending = true
