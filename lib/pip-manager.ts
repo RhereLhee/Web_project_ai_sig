@@ -98,6 +98,9 @@ class PipManager {
   private hlsServerCountdown = 0
   private hlsCandleCounts: Record<string, number> = {}
   private hlsDebugFetchId: ReturnType<typeof setInterval> | null = null
+  private hlsFirstPushOkTime = 0  // timestamp of first successful push for current hlsUrl
+  private hlsVideoCanPlay = false // video canplay fired (separate from hlsReady)
+  private hlsReadyDelayId: ReturnType<typeof setTimeout> | null = null
 
   // Listeners
   private stateListeners: Set<PipStateListener> = new Set()
@@ -442,16 +445,16 @@ class PipManager {
       if (data.hls_url) {
         if (data.hls_url !== this.hlsUrl) {
           this.hlsUrl = data.hls_url
+          this.hlsFirstPushOkTime = 0
           // Push ก่อน preload — VPS ต้องมี real data ก่อน FFmpeg render segment
           if (data.symbols && Object.keys(data.symbols).length > 0) {
             this.hlsPushLastTime = 0
             this.pushDataToHlsServer(data)
           }
-          // รอ 1.5s หลัง push — FFmpeg render segment ใหม่ทุก 2s แต่ push ไปก่อนแล้ว
-          // segment แรกหลัง push จะมี real data (iOS seek to live edge อยู่แล้ว)
-          setTimeout(() => {
-            if (this.hlsUrl === data.hls_url && !this.hlsReady) this.preloadHlsVideo()
-          }, 1500)
+          // Preload ทันที — video จะโหลด segment เก่าได้ก่อน (canplay เร็ว)
+          // แต่ hlsReady จะยังไม่ set จนกว่า scheduleHlsReadyAfterPush ยืนยันว่า
+          // push สำเร็จ + ผ่านไป 4s (FFmpeg render segment ใหม่ที่มี real data แล้ว)
+          if (!this.hlsReady && !this.hlsLoading) this.preloadHlsVideo()
         } else if (!this.hlsReady && !this.hlsLoading && this.hlsUrl) {
           this.preloadHlsVideo()
         }
@@ -595,21 +598,35 @@ class PipManager {
         this.hlsBridgeConnected = json.bridge_connected ?? false
         this.hlsServerCountdown = json.countdown ?? 0
         if (json.candle_counts) this.hlsCandleCounts = json.candle_counts
+        if (this.hlsFirstPushOkTime === 0) {
+          this.hlsFirstPushOkTime = Date.now()
+          this.plog(`first push OK → segments will have real data in ~4s`)
+          this.scheduleHlsReadyAfterPush()
+        }
         this.plog(`hls/push ✓ ${this.hlsPushStatus} render:${this.hlsServerSrc}`)
       } else {
         this.hlsPushStatus = `fail:${res.status}#${this.hlsPushCount}`
         this.plog(`hls/push ✗ ${res.status} ${res.statusText}`)
+        if (this.hlsFirstPushOkTime === 0) {
+          this.hlsFirstPushOkTime = Date.now()
+          this.scheduleHlsReadyAfterPush()
+        }
       }
     }).catch((err) => {
       this.hlsPushCount++
       this.hlsPushStatus = `err:${err?.message ?? err}#${this.hlsPushCount}`
       this.plog(`hls/push err ${err?.message ?? err}`)
+      if (this.hlsFirstPushOkTime === 0) {
+        this.hlsFirstPushOkTime = Date.now()
+        this.scheduleHlsReadyAfterPush()
+      }
     })
   }
 
   // เพื่อให้ตอนกด PiP ไม่ต้องรอ fetch/canplay iOS gesture token ไม่หมดอายุ
   private preloadHlsVideo(): void {
     this.cleanupHlsVideo()
+    this.hlsVideoCanPlay = false
     this.setHlsReady(false)
 
     const hlsUrl = this.hlsUrl
@@ -637,6 +654,47 @@ class PipManager {
     this.attachHlsPipExitListeners(this.hlsVideo)
 
     this.hlsLoadWithRetry(hlsUrl)
+  }
+
+  private scheduleHlsReadyAfterPush(): void {
+    if (this.hlsReady) return
+    if (!this.hlsVideoCanPlay) return
+
+    // Safety: if no push happened yet but video can play, schedule a fallback
+    if (this.hlsFirstPushOkTime === 0) {
+      if (!this.hlsReadyDelayId) {
+        this.hlsReadyDelayId = setTimeout(() => {
+          this.hlsReadyDelayId = null
+          if (!this.hlsReady && this.hlsVideoCanPlay && this.hlsUrl) {
+            this.plog('HLS ready (fallback — no push response yet)')
+            this.setHlsReady(true)
+          }
+        }, 6000)
+      }
+      return
+    }
+
+    if (this.hlsReadyDelayId) {
+      clearTimeout(this.hlsReadyDelayId)
+      this.hlsReadyDelayId = null
+    }
+
+    const elapsed = Date.now() - this.hlsFirstPushOkTime
+    const MIN_WAIT = 4000
+    if (elapsed >= MIN_WAIT) {
+      this.plog(`HLS ready ✓ (push ${elapsed}ms ago, video canplay)`)
+      this.setHlsReady(true)
+    } else {
+      const wait = MIN_WAIT - elapsed
+      this.plog(`HLS video canplay but push only ${elapsed}ms ago — waiting ${wait}ms for fresh segments`)
+      this.hlsReadyDelayId = setTimeout(() => {
+        this.hlsReadyDelayId = null
+        if (!this.hlsReady && this.hlsVideoCanPlay && this.hlsUrl) {
+          this.plog(`HLS ready ✓ (post-push delay done)`)
+          this.setHlsReady(true)
+        }
+      }, wait)
+    }
   }
 
   // Debug event listeners — แยกเป็น method เพื่อ reuse
@@ -684,23 +742,18 @@ class PipManager {
       this.stopMediaSessionKeepalive()
       this.notifyStateListeners(false)
 
-      // เก็บ video ไว้สำหรับ re-entry — ไม่ทำลาย ไม่ re-preload
-      if (this.hlsVideo && this.hlsVideo === v && !v.error && v.readyState >= 2) {
-        this.setHlsReady(true)
-        v.pause()  // pause เพื่อประหยัด resource แต่ไม่ removeAttribute src
-        this.plog(`PiP exited — video kept rs=${v.readyState} → ready for instant re-entry`)
-      } else {
-        // Video broken → re-preload สำหรับ next tap
-        this.plog(`PiP exited — video broken (rs=${v.readyState} err=${v.error?.code}) → re-preloading`)
-        if (this.hlsUrl) {
-          this.hlsPushLastTime = 0
-          const d = signalService.getData()
-          if (d?.symbols && Object.keys(d.symbols).length > 0) this.pushDataToHlsServer(d)
-        }
-        setTimeout(() => {
-          if (this.hlsUrl && !this.hlsReady) this.preloadHlsVideo()
-        }, 2000)
+      // Re-preload เสมอเมื่อออก PiP — ให้ได้ segment ใหม่สำหรับ re-entry
+      // ไม่เก็บ video เดิม (buffer จะ stale / iOS อาจ drop buffer หลัง pause)
+      this.plog(`PiP exited rs=${v.readyState} err=${v.error?.code ?? 'none'} → re-preloading`)
+      if (this.hlsUrl) {
+        this.hlsPushLastTime = 0
+        const d = signalService.getData()
+        if (d?.symbols && Object.keys(d.symbols).length > 0) this.pushDataToHlsServer(d)
       }
+      v.pause()
+      setTimeout(() => {
+        if (this.hlsUrl && !this.isActive) this.preloadHlsVideo()
+      }, 1000)
     }
     v.addEventListener('leavepictureinpicture', onPipExit)
     v.addEventListener('webkitpresentationmodechanged', () => {
@@ -766,9 +819,10 @@ class PipManager {
     const setReady = (event: string) => {
       if (isStale()) { cleanup(); return }
       cleanup()
-      this.setHlsReady(true)
       this.hlsLoading = false
-      this.plog(`HLS ready via ${event} (attempt=${attempt + 1} rs=${v.readyState} buf=${this.fmtBuf(v)})`)
+      this.hlsVideoCanPlay = true
+      this.plog(`HLS video canplay via ${event} (attempt=${attempt + 1} rs=${v.readyState} buf=${this.fmtBuf(v)})`)
+      this.scheduleHlsReadyAfterPush()
     }
 
     const onCanPlay = () => setReady('canplay')
@@ -896,6 +950,13 @@ class PipManager {
     }
 
     const v = this.hlsVideo
+
+    // Re-entry check: if video was paused and buffer is empty, re-preload
+    if (this.hlsReady && v.paused && v.buffered.length === 0 && v.readyState < 2) {
+      this.plog(`re-entry: buffer empty rs=${v.readyState} → re-preload`)
+      this.preloadHlsVideo()
+      return false
+    }
 
     // iOS gesture requirement: webkitSetPresentationMode ต้องถูก call
     // ทันทีหลัง user tap — ห้าม await นาน ไม่งั้น gesture window หมดอายุ
@@ -1063,6 +1124,7 @@ class PipManager {
 
   private cleanupHlsVideo(): void {
     this.hlsLoading = false
+    this.hlsVideoCanPlay = false
     this.setHlsReady(false)
     this.hlsLoadGeneration++ // invalidate all in-flight closures
     if (this.hlsRetryTimeoutId) {
@@ -1072,6 +1134,10 @@ class PipManager {
     if (this.hlsLoadedDataTimeoutId) {
       clearTimeout(this.hlsLoadedDataTimeoutId)
       this.hlsLoadedDataTimeoutId = null
+    }
+    if (this.hlsReadyDelayId) {
+      clearTimeout(this.hlsReadyDelayId)
+      this.hlsReadyDelayId = null
     }
     if (this.hlsVideo) {
       this.hlsVideo.pause()
@@ -1296,16 +1362,11 @@ class PipManager {
         (this.video as any).webkitSetPresentationMode('inline')
       }
 
-      // ปิด HLS PiP — แค่ออก PiP mode ไม่ทำลาย video (เก็บไว้ re-entry ทันที)
-      // onPipExit จะ fire จาก webkitpresentationmodechanged → mark ready + pause
+      // ปิด HLS PiP — onPipExit จะ fire จาก webkitpresentationmodechanged → re-preload
       if (this.hlsVideo && (this.hlsVideo as any).webkitPresentationMode === 'picture-in-picture') {
         (this.hlsVideo as any).webkitSetPresentationMode('inline')
       } else if (this.hlsVideo && (this.hlsVideo as any).webkitSupportsPresentationMode) {
-        // Already inline — just pause
         this.hlsVideo.pause()
-        if (!this.hlsVideo.error && this.hlsVideo.readyState >= 2) {
-          this.setHlsReady(true)
-        }
       }
       this.stopMediaSessionKeepalive()
 
