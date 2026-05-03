@@ -22,6 +22,7 @@ interface PipContextValue {
   // PiP
   isPipActive: boolean
   isPipSupported: boolean
+  isHlsLoading: boolean
   togglePip: () => Promise<void>
 
   // Free-plan flags (propagated to SignalRoomContent)
@@ -75,6 +76,7 @@ export function PipProvider({
   // PiP state
   const [isPipActive, setIsPipActive] = useState(false)
   const [isPipSupported, setIsPipSupported] = useState(false)
+  const [isHlsReady, setIsHlsReady] = useState(false)
 
   // Sound Alert: track active signals เพื่อตรวจจับ signal ใหม่
   const prevSignalsRef = useRef<Record<string, string | null>>({})
@@ -171,6 +173,11 @@ export function PipProvider({
       setIsPipActive(active)
     })
 
+    // Subscribe to HLS ready state
+    const unsubscribeHlsReady = pipManager.onHlsReadyChange((ready) => {
+      setIsHlsReady(ready)
+    })
+
     // Check PiP support — free plan forces this to false so the button is hidden.
     setIsPipSupported(!freePlanActive && pipManager.getIsSupported())
 
@@ -180,6 +187,7 @@ export function PipProvider({
       unsubscribeSymbols()
       unsubscribeConnection()
       unsubscribePip()
+      unsubscribeHlsReady()
     }
   }, [wsUrl, checkForNewSignals, allowedPairs, freePlanActive])
 
@@ -193,6 +201,8 @@ export function PipProvider({
     await pipManager.toggle()
   }, [freePlanActive])
 
+  const isHlsLoading = isPipSupported && !isHlsReady && !isPipActive
+
   const value: PipContextValue = {
     connected,
     dataMode,
@@ -201,6 +211,7 @@ export function PipProvider({
     globalCountdown,
     isPipActive,
     isPipSupported,
+    isHlsLoading,
     togglePip,
     freePlanActive,
     allowedPairs: allowedPairs ?? null,

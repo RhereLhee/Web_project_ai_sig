@@ -32,6 +32,7 @@ const COLORS = {
 }
 
 type PipStateListener = (active: boolean) => void
+type HlsReadyListener = (ready: boolean) => void
 
 // PiP Mode:
 // 'hls'    = HLS video PiP (ลอยเหนือแอปจริง ทุก platform)
@@ -100,6 +101,7 @@ class PipManager {
 
   // Listeners
   private stateListeners: Set<PipStateListener> = new Set()
+  private hlsReadyListeners: Set<HlsReadyListener> = new Set()
 
   // Unsubscribe functions
   private unsubscribeData: (() => void) | null = null
@@ -445,11 +447,11 @@ class PipManager {
             this.hlsPushLastTime = 0
             this.pushDataToHlsServer(data)
           }
-          // รอ 3s หลัง push — FFmpeg ต้อง render อย่างน้อย 1 segment ใหม่ (2s per segment)
-          // ถ้า preload เร็วกว่านี้ iOS จะโหลด segment เก่าที่ยังไม่มี real data/signals
+          // รอ 1.5s หลัง push — FFmpeg render segment ใหม่ทุก 2s แต่ push ไปก่อนแล้ว
+          // segment แรกหลัง push จะมี real data (iOS seek to live edge อยู่แล้ว)
           setTimeout(() => {
             if (this.hlsUrl === data.hls_url && !this.hlsReady) this.preloadHlsVideo()
-          }, 3000)
+          }, 1500)
         } else if (!this.hlsReady && !this.hlsLoading && this.hlsUrl) {
           this.preloadHlsVideo()
         }
@@ -608,7 +610,7 @@ class PipManager {
   // เพื่อให้ตอนกด PiP ไม่ต้องรอ fetch/canplay iOS gesture token ไม่หมดอายุ
   private preloadHlsVideo(): void {
     this.cleanupHlsVideo()
-    this.hlsReady = false
+    this.setHlsReady(false)
 
     const hlsUrl = this.hlsUrl
     if (!hlsUrl) return
@@ -684,7 +686,7 @@ class PipManager {
 
       // เก็บ video ไว้สำหรับ re-entry — ไม่ทำลาย ไม่ re-preload
       if (this.hlsVideo && this.hlsVideo === v && !v.error && v.readyState >= 2) {
-        this.hlsReady = true
+        this.setHlsReady(true)
         v.pause()  // pause เพื่อประหยัด resource แต่ไม่ removeAttribute src
         this.plog(`PiP exited — video kept rs=${v.readyState} → ready for instant re-entry`)
       } else {
@@ -764,7 +766,7 @@ class PipManager {
     const setReady = (event: string) => {
       if (isStale()) { cleanup(); return }
       cleanup()
-      this.hlsReady = true
+      this.setHlsReady(true)
       this.hlsLoading = false
       this.plog(`HLS ready via ${event} (attempt=${attempt + 1} rs=${v.readyState} buf=${this.fmtBuf(v)})`)
     }
@@ -902,7 +904,7 @@ class PipManager {
       // ลองเข้า PiP เลย — ดีกว่าตก popup
       if (v.readyState >= 2 && !v.error) {
         this.plog(`HLS not "ready" but rs=${v.readyState} — forcing PiP attempt`)
-        this.hlsReady = true
+        this.setHlsReady(true)
       } else {
         this.plog(`HLS not ready rs=${v.readyState} loading=${this.hlsLoading} — wait next tap`)
         if (!this.hlsLoading) {
@@ -1061,7 +1063,7 @@ class PipManager {
 
   private cleanupHlsVideo(): void {
     this.hlsLoading = false
-    this.hlsReady = false
+    this.setHlsReady(false)
     this.hlsLoadGeneration++ // invalidate all in-flight closures
     if (this.hlsRetryTimeoutId) {
       clearTimeout(this.hlsRetryTimeoutId)
@@ -1302,7 +1304,7 @@ class PipManager {
         // Already inline — just pause
         this.hlsVideo.pause()
         if (!this.hlsVideo.error && this.hlsVideo.readyState >= 2) {
-          this.hlsReady = true
+          this.setHlsReady(true)
         }
       }
       this.stopMediaSessionKeepalive()
@@ -1757,6 +1759,23 @@ class PipManager {
     }
   }
 
+  onHlsReadyChange(listener: HlsReadyListener): () => void {
+    this.hlsReadyListeners.add(listener)
+    listener(this.hlsReady)
+
+    return () => {
+      this.hlsReadyListeners.delete(listener)
+    }
+  }
+
+  private setHlsReady(ready: boolean): void {
+    if (this.hlsReady === ready) return
+    this.hlsReady = ready
+    this.hlsReadyListeners.forEach(l => {
+      try { l(ready) } catch { /* swallow */ }
+    })
+  }
+
   private notifyStateListeners(active: boolean): void {
     this.stateListeners.forEach(listener => {
       try {
@@ -1777,6 +1796,10 @@ class PipManager {
 
   getIsSupported(): boolean {
     return this.isSupported
+  }
+
+  getIsHlsReady(): boolean {
+    return this.hlsReady
   }
 
 

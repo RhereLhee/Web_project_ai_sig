@@ -50,6 +50,7 @@ export function SignalRoomContent({ user }: SignalRoomContentProps) {
     globalCountdown,
     isPipActive,
     isPipSupported,
+    isHlsLoading,
     togglePip,
     freePlanActive,
     allowedPairs,
@@ -334,16 +335,26 @@ export function SignalRoomContent({ user }: SignalRoomContentProps) {
 
           {isPipSupported && (
             <button
-              onClick={togglePip}
+              onClick={isHlsLoading ? undefined : togglePip}
+              disabled={isHlsLoading}
               className={`flex items-center space-x-1 md:space-x-2 px-2 md:px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 isPipActive
                   ? 'bg-emerald-500 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  : isHlsLoading
+                    ? 'bg-gray-200 text-gray-400 cursor-wait'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-              </svg>
+              {isHlsLoading ? (
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                </svg>
+              )}
               <span>{isPipActive ? 'ปิด PiP' : 'PiP'}</span>
             </button>
           )}
