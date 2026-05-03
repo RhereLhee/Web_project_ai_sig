@@ -87,6 +87,15 @@ class PipManager {
   private hlsPushCount = 0
   private hlsPushLastTime = 0
 
+  // Server-side debug info (fetched from /hls/push response or /debug/hls)
+  private hlsServerSrc = '?'        // bridge | cached_bridge | frontend_push | mock
+  private hlsServerMode = '?'
+  private hlsBridgeAge = -1          // seconds since last bridge update
+  private hlsBridgeConnected = false
+  private hlsServerCountdown = 0
+  private hlsCandleCounts: Record<string, number> = {}
+  private hlsDebugFetchId: ReturnType<typeof setInterval> | null = null
+
   // Listeners
   private stateListeners: Set<PipStateListener> = new Set()
 
@@ -268,6 +277,8 @@ class PipManager {
   // DEBUG OVERLAY
   // ============================================
 
+  private debugServerEl: HTMLDivElement | null = null
+
   private initDebugOverlay(): void {
     if (this.debugOverlay) return
     const div = document.createElement('div')
@@ -275,7 +286,7 @@ class PipManager {
     div.style.cssText = [
       'position:fixed', 'top:8px', 'left:8px', 'z-index:999999',
       'background:rgba(0,0,0,0.85)', 'color:#0f0', 'font:11px/1.4 monospace',
-      'padding:8px', 'border-radius:6px', 'max-width:320px',
+      'padding:8px', 'border-radius:6px', 'max-width:360px',
       'pointer-events:none', 'white-space:pre-wrap', 'word-break:break-all',
     ].join(';')
 
@@ -286,17 +297,25 @@ class PipManager {
     this.debugStateEl = document.createElement('div')
     this.debugStateEl.style.cssText = 'color:#ff0;margin-bottom:4px'
 
+    // Server-side info section
+    this.debugServerEl = document.createElement('div')
+    this.debugServerEl.style.cssText = 'color:#0ff;margin-bottom:4px;border-top:1px solid #333;padding-top:4px'
+
     this.debugLogEl = document.createElement('pre')
     this.debugLogEl.style.cssText = 'margin:0;color:#0f0;font-size:10px;max-height:160px;overflow:hidden'
 
     div.appendChild(title)
     div.appendChild(this.debugStateEl)
+    div.appendChild(this.debugServerEl)
     div.appendChild(this.debugLogEl)
     document.body.appendChild(div)
     this.debugOverlay = div
 
     // Refresh state every second
     this.debugRefreshId = setInterval(() => this.refreshDebug(), 1000)
+    // Fetch server debug every 5 seconds
+    this.hlsDebugFetchId = setInterval(() => this.fetchServerDebug(), 5000)
+    this.fetchServerDebug()
     this.plog('debug overlay ready')
   }
 
@@ -320,7 +339,7 @@ class PipManager {
     const rsLabels = ['NOTHING','METADATA','CURRENT','FUTURE','ENOUGH']
     const rs = v?.readyState ?? -1
     const net = v?.networkState ?? -1
-    // Data freshness
+    // Data freshness — frontend side
     const liveData = signalService.getData()
     const symCount = liveData ? Object.keys(liveData.symbols || {}).length : 0
     const stale = liveData?.stale ? '(STALE)' : ''
@@ -330,6 +349,17 @@ class PipManager {
       : 'never'
     // HLS URL summary (last 25 chars)
     const hlsShort = this.hlsUrl ? this.hlsUrl.slice(-25) : 'none'
+
+    // Frontend candle counts for comparison
+    const frontCandles: string[] = []
+    if (liveData?.symbols) {
+      for (const sym of SYMBOLS) {
+        const sd = liveData.symbols[sym]
+        const cnt = sd?.candles?.length ?? 0
+        frontCandles.push(`${sym.replace('m','').slice(0,3)}:${cnt}`)
+      }
+    }
+
     this.debugStateEl.textContent = [
       `mode:${this.pipMode} | active:${this.isActive}`,
       `ready:${this.hlsReady} | loading:${this.hlsLoading} gen:${this.hlsLoadGeneration}`,
@@ -340,8 +370,46 @@ class PipManager {
       `err:${(v as any)?.error?.code ?? 'none'}`,
       `data:${symCount}sym cd:${this.globalCountdown}s ${stale}`,
       `push:${this.hlsPushStatus} (${pushAge})`,
+      `front_candles:${frontCandles.join(' ') || 'none'}`,
       `url:…${hlsShort}`,
     ].join('\n')
+
+    // Update server section
+    if (this.debugServerEl) {
+      const srcColor = this.hlsServerSrc === 'bridge' ? '🟢' :
+                       this.hlsServerSrc === 'mock' ? '🔴' :
+                       this.hlsServerSrc === 'frontend_push' ? '🟡' :
+                       this.hlsServerSrc === 'cached_bridge' ? '🟠' : '⚪'
+      const serverCandles: string[] = []
+      for (const sym of SYMBOLS) {
+        const cnt = this.hlsCandleCounts[sym] ?? this.hlsCandleCounts[sym.replace('m','')] ?? '?'
+        serverCandles.push(`${sym.replace('m','').slice(0,3)}:${cnt}`)
+      }
+      this.debugServerEl.textContent = [
+        `── HLS Server ──`,
+        `${srcColor} src:${this.hlsServerSrc} mode:${this.hlsServerMode}`,
+        `bridge:${this.hlsBridgeConnected} age:${this.hlsBridgeAge >= 0 ? this.hlsBridgeAge+'s' : 'never'}`,
+        `srv_cd:${this.hlsServerCountdown}s`,
+        `srv_candles:${serverCandles.join(' ')}`,
+      ].join('\n')
+    }
+  }
+
+  private fetchServerDebug(): void {
+    if (!this.hlsUrl) return
+    const baseUrl = this.hlsUrl.replace(/\/stream\/.*/, '')
+    fetch(`${baseUrl}/debug/hls`, { signal: AbortSignal.timeout(3000) })
+      .then(res => res.ok ? res.json() : null)
+      .then(json => {
+        if (!json) return
+        this.hlsServerSrc = json.hls_src ?? '?'
+        this.hlsServerMode = json.hls_mode ?? '?'
+        this.hlsBridgeAge = json.bridge_age_s ?? -1
+        this.hlsBridgeConnected = json.bridge_connected ?? false
+        this.hlsServerCountdown = json.countdown ?? 0
+        if (json.candle_counts) this.hlsCandleCounts = json.candle_counts
+      })
+      .catch(() => {})
   }
 
   private subscribeToSignalService(): void {
@@ -499,10 +567,16 @@ class PipManager {
       this.hlsPushCount++
       if (res.ok) {
         const json = await res.json().catch(() => ({}))
-        // src: 'push_active' = VPS ใช้ push data | 'bridge_active_push_stored' = VPS มี bridge data อยู่แล้ว
         const src = json.src ?? 'ok'
         this.hlsPushStatus = `${src}#${this.hlsPushCount} sym=${json.symbols ?? '?'}`
-        this.plog(`hls/push ✓ ${this.hlsPushStatus}`)
+        // Capture server-side rendering info from enhanced response
+        this.hlsServerSrc = json.hls_rendering ?? '?'
+        this.hlsServerMode = json.hls_mode ?? '?'
+        this.hlsBridgeAge = json.bridge_age_s ?? -1
+        this.hlsBridgeConnected = json.bridge_connected ?? false
+        this.hlsServerCountdown = json.countdown ?? 0
+        if (json.candle_counts) this.hlsCandleCounts = json.candle_counts
+        this.plog(`hls/push ✓ ${this.hlsPushStatus} render:${this.hlsServerSrc}`)
       } else {
         this.hlsPushStatus = `fail:${res.status}#${this.hlsPushCount}`
         this.plog(`hls/push ✗ ${res.status} ${res.statusText}`)
@@ -1688,6 +1762,10 @@ class PipManager {
     if (this.debugRefreshId) {
       clearInterval(this.debugRefreshId)
       this.debugRefreshId = null
+    }
+    if (this.hlsDebugFetchId) {
+      clearInterval(this.hlsDebugFetchId)
+      this.hlsDebugFetchId = null
     }
     if (this.debugOverlay && this.debugOverlay.parentNode) {
       this.debugOverlay.parentNode.removeChild(this.debugOverlay)
