@@ -922,27 +922,20 @@ class PipManager {
       if ((v as any).webkitSupportsPresentationMode) {
         // iOS: play() + webkitSetPresentationMode ต้องเรียกพร้อมกัน — gesture window ยังอยู่
         // play() มักถูก reject ด้วย AbortError เพราะ iOS PiP รับ control playback แทน → ปกติ ไม่ต้อง retry
+        // await play() ก่อน webkitSetPresentationMode:
+        // - muted video ที่ rs≥2 → play() resolve เป็น microtask (เกือบ synchronous)
+        // - gesture window ยังอยู่หลัง await microtask
+        // - วิดีโอต้องอยู่ใน playing state ก่อน enter PiP ไม่งั้น PiP จะ paused
         this.plog('play()...')
         this.playPending = true
-        const playPromise = v.play().finally(() => { this.playPending = false })
+        await v.play().catch((err: any) => {
+          // สำหรับ muted video error ไม่น่าเกิด แต่ถ้าเกิด log แล้วไปต่อ
+          this.plog(`play() pre-PiP: ${err?.name ?? err} — proceeding anyway`)
+        }).finally(() => { this.playPending = false })
 
+        // ตอนนี้ video อยู่ใน playing state → enter PiP synchronously
         this.plog('webkitSetPresentationMode pip')
         ;(v as any).webkitSetPresentationMode('picture-in-picture')
-
-        await playPromise.catch((err: any) => {
-          if (err?.name === 'AbortError') {
-            // Expected: iOS PiP takes over playback control — system resumes automatically
-            this.plog(`play() AbortError (PiP entry expected — system handles playback)`)
-            return
-          }
-          this.plog(`play() rejected: ${err?.name} — retry in 1s`)
-          setTimeout(() => {
-            if (this.isActive && this.hlsVideo && !this.playPending) {
-              this.playPending = true
-              this.hlsVideo.play().catch(() => {}).finally(() => { this.playPending = false })
-            }
-          }, 1000)
-        })
       } else if ('requestPictureInPicture' in v) {
         this.plog('play()...')
         this.playPending = true
@@ -983,8 +976,8 @@ class PipManager {
           return
         }
 
-        // Stall detection: currentTime not advancing + no future data
-        const timeStuck = v.readyState < 3 && v.currentTime === lastCurrentTime && lastCurrentTime >= 0
+        // Stall detection: currentTime not advancing (covers both buffering AND playing-but-frozen)
+        const timeStuck = v.currentTime === lastCurrentTime && lastCurrentTime >= 0
         if (timeStuck) {
           stuckTicks++
 
