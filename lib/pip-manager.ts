@@ -680,7 +680,7 @@ class PipManager {
     }
 
     const elapsed = Date.now() - this.hlsFirstPushOkTime
-    const MIN_WAIT = 4000
+    const MIN_WAIT = 5000
     if (elapsed >= MIN_WAIT) {
       this.plog(`HLS ready ✓ (push ${elapsed}ms ago, video canplay)`)
       this.setHlsReady(true)
