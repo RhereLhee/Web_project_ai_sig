@@ -917,22 +917,30 @@ class PipManager {
       this.setupViewOnlyMediaSession()
 
       if ((v as any).webkitSupportsPresentationMode) {
-        // iOS: play() + webkitSetPresentationMode ต้องเรียกพร้อมกัน — gesture window ยังอยู่
-        // play() มักถูก reject ด้วย AbortError เพราะ iOS PiP รับ control playback แทน → ปกติ ไม่ต้อง retry
-        // await play() ก่อน webkitSetPresentationMode:
-        // - muted video ที่ rs≥2 → play() resolve เป็น microtask (เกือบ synchronous)
-        // - gesture window ยังอยู่หลัง await microtask
-        // - วิดีโอต้องอยู่ใน playing state ก่อน enter PiP ไม่งั้น PiP จะ paused
+        // iOS: เรียก play() + webkitSetPresentationMode พร้อมกัน ห้าม await play()
+        // เหตุผล: play() ที่ rs=2 live HLS อาจค้างรอ buffer → gesture window หมดอายุ
+        // webkitSetPresentationMode ต้องอยู่ภายใน user gesture callback ถ้าไม่ทัน → ไม่ทำงาน
+        // play() AbortError ตอน PiP entry = ปกติ (iOS takes over) → keepalive จะ resume
         this.plog('play()...')
         this.playPending = true
-        await v.play().catch((err: any) => {
-          // สำหรับ muted video error ไม่น่าเกิด แต่ถ้าเกิด log แล้วไปต่อ
-          this.plog(`play() pre-PiP: ${err?.name ?? err} — proceeding anyway`)
-        }).finally(() => { this.playPending = false })
+        const playPromise = v.play()
 
-        // ตอนนี้ video อยู่ใน playing state → enter PiP synchronously
+        // เรียก webkitSetPresentationMode ทันที — gesture window ยังอยู่
         this.plog('webkitSetPresentationMode pip')
         ;(v as any).webkitSetPresentationMode('picture-in-picture')
+
+        // Handle play() result แบบ async — ไม่ block PiP entry
+        playPromise.then(() => {
+          this.playPending = false
+          this.plog('play() resolved — video playing in PiP')
+        }).catch((err: any) => {
+          this.playPending = false
+          if (err?.name === 'AbortError') {
+            this.plog('play() AbortError (PiP entry) — keepalive will resume if paused')
+          } else {
+            this.plog(`play() rejected: ${err?.name} — keepalive will retry`)
+          }
+        })
       } else if ('requestPictureInPicture' in v) {
         this.plog('play()...')
         this.playPending = true
