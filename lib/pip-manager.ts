@@ -821,7 +821,12 @@ class PipManager {
       cleanup()
       this.hlsLoading = false
       this.hlsVideoCanPlay = true
-      this.plog(`HLS video canplay via ${event} (attempt=${attempt + 1} rs=${v.readyState} buf=${this.fmtBuf(v)})`)
+      // Pre-seek to live edge during preload so PiP entry starts at latest segment
+      if (v.buffered.length > 0) {
+        const bufEnd = v.buffered.end(v.buffered.length - 1)
+        if (bufEnd > 1) v.currentTime = Math.max(0, bufEnd - 0.5)
+      }
+      this.plog(`HLS video canplay via ${event} (attempt=${attempt + 1} rs=${v.readyState} buf=${this.fmtBuf(v)} t=${v.currentTime.toFixed(1)})`)
       this.scheduleHlsReadyAfterPush()
     }
 
@@ -980,39 +985,45 @@ class PipManager {
       this.setupViewOnlyMediaSession()
 
       if ((v as any).webkitSupportsPresentationMode) {
-        // Seek to live edge — ให้ iOS แสดง segment ล่าสุดที่มี real data/signals
-        // ไม่งั้น PiP ครั้งแรกจะแสดง segment เก่าที่ render ก่อน push data
-        if (v.buffered.length > 0) {
-          const bufEnd = v.buffered.end(v.buffered.length - 1)
-          if (bufEnd > 1) {
-            v.currentTime = Math.max(0, bufEnd - 0.5)
-            this.plog(`seek to live edge t=${v.currentTime.toFixed(1)}s (buf end=${bufEnd.toFixed(1)}s)`)
-          }
-        }
-
-        // เรียก play() + webkitSetPresentationMode พร้อมกัน ห้าม await play()
-        // play() ที่ rs=2 live HLS อาจค้างรอ buffer → gesture window หมดอายุ
-        // play() AbortError ตอน PiP entry = ปกติ (iOS takes over) → keepalive จะ resume
+        // ห้าม seek ก่อน play() — iOS ignore seek on unplayed HLS
+        // play() + webkitSetPresentationMode ทันที → seek to live edge หลัง entry
         this.plog('play()...')
         this.playPending = true
         const playPromise = v.play()
 
-        // เรียก webkitSetPresentationMode ทันที — gesture window ยังอยู่
         this.plog('webkitSetPresentationMode pip')
         ;(v as any).webkitSetPresentationMode('picture-in-picture')
 
-        // Handle play() result แบบ async — ไม่ block PiP entry
         playPromise.then(() => {
           this.playPending = false
-          this.plog('play() resolved — video playing in PiP')
+          this.plog('play() resolved')
         }).catch((err: any) => {
           this.playPending = false
           if (err?.name === 'AbortError') {
-            this.plog('play() AbortError (PiP entry) — keepalive will resume if paused')
+            this.plog('play() AbortError (expected at PiP entry)')
           } else {
-            this.plog(`play() rejected: ${err?.name} — keepalive will retry`)
+            this.plog(`play() rejected: ${err?.name}`)
           }
         })
+
+        // Post-entry: force seek to live edge (iOS resets to t=0 on PiP entry)
+        const seekLive = () => {
+          if (!this.isActive || v !== this.hlsVideo) return
+          if (v.buffered.length > 0) {
+            const bufEnd = v.buffered.end(v.buffered.length - 1)
+            if (bufEnd > 1 && v.currentTime < bufEnd - 1.5) {
+              v.currentTime = Math.max(0, bufEnd - 0.5)
+              this.plog(`post-entry seek live t=${v.currentTime.toFixed(1)}s (buf end=${bufEnd.toFixed(1)}s)`)
+            }
+          }
+          if (v.paused && !this.playPending) {
+            this.playPending = true
+            v.play().catch(() => {}).finally(() => { this.playPending = false })
+          }
+        }
+        setTimeout(seekLive, 300)
+        setTimeout(seekLive, 1000)
+        setTimeout(seekLive, 2500)
       } else if ('requestPictureInPicture' in v) {
         this.plog('play()...')
         this.playPending = true
@@ -1041,6 +1052,16 @@ class PipManager {
         const v = this.hlsVideo
         if (!v || !this.isActive) return
 
+        // Live-edge enforcement: if behind buffer end by >3s, jump forward
+        if (v.buffered.length > 0 && !v.seeking) {
+          const bufEnd = v.buffered.end(v.buffered.length - 1)
+          if (bufEnd > 3 && v.currentTime < bufEnd - 3) {
+            const oldT = v.currentTime
+            v.currentTime = Math.max(0, bufEnd - 0.5)
+            this.plog(`keepalive: jump to live t=${oldT.toFixed(1)}→${v.currentTime.toFixed(1)} (buf end=${bufEnd.toFixed(1)})`)
+          }
+        }
+
         // Resume if paused by system — guard concurrent play() calls
         if (v.paused && !this.playPending) {
           this.plog('keepalive: resume paused')
@@ -1059,8 +1080,12 @@ class PipManager {
           stuckTicks++
 
           if (stuckTicks === 3) {
-            // 6s stall — try play()
-            this.plog(`stall 6s t=${v.currentTime.toFixed(1)}s rs=${v.readyState} → play()`)
+            // 6s stall — seek to live edge + play()
+            this.plog(`stall 6s t=${v.currentTime.toFixed(1)}s rs=${v.readyState} → seek live + play()`)
+            if (v.buffered.length > 0) {
+              const bufEnd = v.buffered.end(v.buffered.length - 1)
+              if (bufEnd > 1) v.currentTime = Math.max(0, bufEnd - 0.5)
+            }
             if (!this.playPending) {
               this.playPending = true
               v.play().catch(() => {}).finally(() => { this.playPending = false })
