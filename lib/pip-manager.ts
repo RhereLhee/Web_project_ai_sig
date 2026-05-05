@@ -821,12 +821,7 @@ class PipManager {
       cleanup()
       this.hlsLoading = false
       this.hlsVideoCanPlay = true
-      // Pre-seek to live edge during preload so PiP entry starts at latest segment
-      if (v.buffered.length > 0) {
-        const bufEnd = v.buffered.end(v.buffered.length - 1)
-        if (bufEnd > 1) v.currentTime = Math.max(0, bufEnd - 0.5)
-      }
-      this.plog(`HLS video canplay via ${event} (attempt=${attempt + 1} rs=${v.readyState} buf=${this.fmtBuf(v)} t=${v.currentTime.toFixed(1)})`)
+      this.plog(`HLS video canplay via ${event} (attempt=${attempt + 1} rs=${v.readyState} buf=${this.fmtBuf(v)})`)
       this.scheduleHlsReadyAfterPush()
     }
 
@@ -985,8 +980,7 @@ class PipManager {
       this.setupViewOnlyMediaSession()
 
       if ((v as any).webkitSupportsPresentationMode) {
-        // ห้าม seek ก่อน play() — iOS ignore seek on unplayed HLS
-        // play() + webkitSetPresentationMode ทันที → seek to live edge หลัง entry
+        // Enter PiP first with preloaded src (gesture window)
         this.plog('play()...')
         this.playPending = true
         const playPromise = v.play()
@@ -1006,24 +1000,24 @@ class PipManager {
           }
         })
 
-        // Post-entry: force seek to live edge (iOS resets to t=0 on PiP entry)
-        const seekLive = () => {
-          if (!this.isActive || v !== this.hlsVideo) return
-          if (v.buffered.length > 0) {
-            const bufEnd = v.buffered.end(v.buffered.length - 1)
-            if (bufEnd > 1 && v.currentTime < bufEnd - 1.5) {
-              v.currentTime = Math.max(0, bufEnd - 0.5)
-              this.plog(`post-entry seek live t=${v.currentTime.toFixed(1)}s (buf end=${bufEnd.toFixed(1)}s)`)
-            }
-          }
-          if (v.paused && !this.playPending) {
-            this.playPending = true
-            v.play().catch(() => {}).finally(() => { this.playPending = false })
-          }
-        }
-        setTimeout(seekLive, 300)
-        setTimeout(seekLive, 1000)
-        setTimeout(seekLive, 2500)
+        // iOS ignores v.currentTime on live HLS — seeking doesn't work at all.
+        // Instead: swap src to a FRESH cache-busted URL after PiP entry.
+        // A fresh HLS load automatically starts from the live edge.
+        setTimeout(() => {
+          if (!this.isActive || v !== this.hlsVideo || !this.hlsUrl) return
+          const sep = this.hlsUrl.includes('?') ? '&' : '?'
+          const freshUrl = `${this.hlsUrl}${sep}_live=${Date.now()}`
+          this.plog(`src-swap to live edge: ${freshUrl.slice(-40)}`)
+          v.src = freshUrl
+          this.playPending = true
+          v.play().then(() => {
+            this.playPending = false
+            this.plog(`src-swap play ok t=${v.currentTime.toFixed(1)}s`)
+          }).catch((err: any) => {
+            this.playPending = false
+            if (err?.name !== 'AbortError') this.plog(`src-swap play err: ${err?.name}`)
+          })
+        }, 500)
       } else if ('requestPictureInPicture' in v) {
         this.plog('play()...')
         this.playPending = true
@@ -1052,17 +1046,7 @@ class PipManager {
         const v = this.hlsVideo
         if (!v || !this.isActive) return
 
-        // Live-edge enforcement: if behind buffer end by >3s, jump forward
-        if (v.buffered.length > 0 && !v.seeking) {
-          const bufEnd = v.buffered.end(v.buffered.length - 1)
-          if (bufEnd > 3 && v.currentTime < bufEnd - 3) {
-            const oldT = v.currentTime
-            v.currentTime = Math.max(0, bufEnd - 0.5)
-            this.plog(`keepalive: jump to live t=${oldT.toFixed(1)}→${v.currentTime.toFixed(1)} (buf end=${bufEnd.toFixed(1)})`)
-          }
-        }
-
-        // Resume if paused by system — guard concurrent play() calls
+        // Resume if paused by system
         if (v.paused && !this.playPending) {
           this.plog('keepalive: resume paused')
           this.playPending = true
@@ -1074,44 +1058,41 @@ class PipManager {
           return
         }
 
-        // Stall detection: currentTime not advancing (covers both buffering AND playing-but-frozen)
+        // Stall detection: currentTime not advancing
         const timeStuck = v.currentTime === lastCurrentTime && lastCurrentTime >= 0
         if (timeStuck) {
           stuckTicks++
 
           if (stuckTicks === 3) {
-            // 6s stall — seek to live edge + play()
-            this.plog(`stall 6s t=${v.currentTime.toFixed(1)}s rs=${v.readyState} → seek live + play()`)
-            if (v.buffered.length > 0) {
-              const bufEnd = v.buffered.end(v.buffered.length - 1)
-              if (bufEnd > 1) v.currentTime = Math.max(0, bufEnd - 0.5)
-            }
-            if (!this.playPending) {
+            // 6s stall — src-swap to force fresh live-edge load
+            // iOS ignores v.currentTime on live HLS, so seek won't help
+            this.plog(`stall 6s t=${v.currentTime.toFixed(1)}s → src-swap to live edge`)
+            if (this.hlsUrl) {
+              const sep = this.hlsUrl.includes('?') ? '&' : '?'
+              v.src = `${this.hlsUrl}${sep}_live=${Date.now()}`
               this.playPending = true
               v.play().catch(() => {}).finally(() => { this.playPending = false })
             }
 
           } else if (stuckTicks === 8) {
-            // 16s stall — pause + resume (soft reset ไม่ทำลาย PiP state)
-            // ห้ามใช้ v.load() ตอน PiP active — จะทำให้ AbortError + iOS เตะออกจาก PiP
-            this.plog(`stall 16s → pause+play`)
+            // 16s stall — pause + src-swap + play
+            this.plog(`stall 16s → pause + src-swap`)
             v.pause()
             setTimeout(() => {
-              if (this.isActive && v === this.hlsVideo && !this.playPending) {
+              if (this.isActive && v === this.hlsVideo && this.hlsUrl) {
+                const sep = this.hlsUrl.includes('?') ? '&' : '?'
+                v.src = `${this.hlsUrl}${sep}_live=${Date.now()}`
                 this.playPending = true
                 v.play().catch(() => {}).finally(() => { this.playPending = false })
               }
             }, 300)
 
           } else if (stuckTicks === 15) {
-            // 30s stall — ออก PiP อัตโนมัติ + re-preload พร้อม real data
-            // ไม่ force re-enter PiP (ต้องเป็น gesture จาก user เท่านั้น)
+            // 30s stall — exit PiP + re-preload
             this.plog(`stall 30s → auto-exit PiP, re-preload`)
             stuckTicks = 0
             this.stopMediaSessionKeepalive()
-            // Exit PiP gracefully
             try { ;(v as any).webkitSetPresentationMode?.('inline') } catch {}
-            // Push + re-preload สำหรับ next tap
             this.hlsPushLastTime = 0
             const d = signalService.getData()
             if (d?.symbols) this.pushDataToHlsServer(d)
