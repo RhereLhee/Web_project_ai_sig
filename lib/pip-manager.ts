@@ -712,7 +712,7 @@ class PipManager {
             this.plog('HLS ready (fallback — no push response yet)')
             this.setHlsReady(true)
           }
-        }, 6000)
+        }, 12000) // fallback longer than MIN_WAIT
       }
       return
     }
@@ -723,7 +723,7 @@ class PipManager {
     }
 
     const elapsed = Date.now() - this.hlsFirstPushOkTime
-    const MIN_WAIT = 5000
+    const MIN_WAIT = 10000 // 10s — with hls_list_size=5 (10s window), iOS starts ~4s in; need real data there
     if (elapsed >= MIN_WAIT) {
       this.plog(`HLS ready ✓ (push ${elapsed}ms ago, video canplay)`)
       this.setHlsReady(true)
