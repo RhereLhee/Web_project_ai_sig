@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { getCurrentUser } from '@/lib/jwt'
 
 interface TelegramMessage {
   message_id: number
@@ -30,6 +31,11 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 export async function GET() {
+  const user = await getCurrentUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
     const botToken = process.env.TELEGRAM_BOT_TOKEN
     const channelUsername = process.env.TELEGRAM_CHANNEL_USERNAME || 'signal_techtrade'

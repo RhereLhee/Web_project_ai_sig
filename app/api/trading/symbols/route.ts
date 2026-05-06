@@ -8,10 +8,14 @@ import { getUserWithSubscription } from '@/lib/auth'
 // Default symbols
 const DEFAULT_SYMBOLS = ['AUDUSDm', 'EURUSDm', 'GBPUSDm', 'USDJPYm', 'EURGBPm', 'EURJPYm']
 
-// GET - ดึงสถานะทุก Symbol
+// GET - ดึงสถานะทุก Symbol (admin only)
 export async function GET() {
   try {
-    // ดึง config จาก database
+    const user = await getUserWithSubscription()
+    if (!user || user.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const configs = await prisma.symbolConfig.findMany({
       orderBy: { symbol: 'asc' }
     })

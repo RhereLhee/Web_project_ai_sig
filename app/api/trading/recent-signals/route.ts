@@ -1,10 +1,17 @@
 // app/api/trading/recent-signals/route.ts
+// Returns recent signal results — requires authentication
+
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
+import { getCurrentUser } from '@/lib/jwt'
 
 export async function GET() {
+  const user = await getCurrentUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
-    // ดึง 10 รายการล่าสุดจาก ForwardSequence
     const sequences = await prisma.forwardSequence.findMany({
       orderBy: { entryTime: 'desc' },
       take: 10,
@@ -20,16 +27,15 @@ export async function GET() {
       totalProfit: seq.totalProfit,
     }))
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       signals,
       count: signals.length,
       lastUpdated: new Date().toISOString()
     })
-  } catch (error) {
-    console.error('Error fetching recent signals:', error)
-    return NextResponse.json({ 
+  } catch {
+    return NextResponse.json({
       signals: [],
-      error: 'Failed to fetch signals' 
+      error: 'Failed to fetch signals'
     }, { status: 500 })
   }
 }
