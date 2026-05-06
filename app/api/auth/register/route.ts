@@ -86,6 +86,20 @@ export async function POST(req: NextRequest) {
 
     const referredById = referrer?.id ?? null
 
+    // Block self-referral via same phone or email as referrer
+    if (referrer) {
+      const referrerData = await prisma.user.findUnique({
+        where: { id: referrer.id },
+        select: { email: true, phone: true },
+      })
+      if (referrerData?.email === normalizedEmail || referrerData?.phone === formattedPhone) {
+        return NextResponse.json(
+          { error: 'ไม่สามารถใช้รหัสแนะนำของตัวเองได้', field: 'referralCode' },
+          { status: 400 },
+        )
+      }
+    }
+
     // 6. Create user
     const user = await prisma.user.create({
       data: {

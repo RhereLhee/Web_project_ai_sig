@@ -197,7 +197,8 @@ export async function distributeCommission(
   }
 
   // 2. Build upline chain (read-only, outside tx for speed)
-  const uplines = await getUplineChain(buyerId)
+  const uplines = (await getUplineChain(buyerId))
+    .filter((u) => u.id !== buyerId) // prevent self-commission
   if (uplines.length === 0) {
     // No uplines — entire pool is dust (company keeps it).
     logger.info(`[Affiliate] No upline for ${buyerId} — pool=${poolSatang} becomes dust`, {

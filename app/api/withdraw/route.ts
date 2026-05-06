@@ -123,6 +123,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Block if user already has a pending/approved withdrawal
+    const pendingCount = await prisma.withdrawal.count({
+      where: { userId: user.id, status: { in: ['PENDING', 'APPROVED'] } },
+    })
+    if (pendingCount > 0) {
+      return NextResponse.json(
+        { error: 'คุณมีคำขอถอนเงินที่รอดำเนินการอยู่แล้ว กรุณารอจนกว่าจะเสร็จสิ้น' },
+        { status: 400 },
+      )
+    }
+
     // Partner record holds the bank info + phone lock. No purchase required.
     const partner = await prisma.partner.findUnique({ where: { userId: user.id } })
     if (!partner) {
