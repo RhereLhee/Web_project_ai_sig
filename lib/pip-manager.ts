@@ -101,6 +101,13 @@ class PipManager {
   private hlsFirstPushOkTime = 0  // timestamp of first successful push for current hlsUrl
   private hlsVideoCanPlay = false // video canplay fired (separate from hlsReady)
   private hlsReadyDelayId: ReturnType<typeof setTimeout> | null = null
+  // Enhanced debug tracking
+  private dbgSrcSwapState = 'none'  // none | swapped | canplay | playing | failed
+  private dbgSrcSwapTime = 0
+  private dbgTimeupdateCount = 0
+  private dbgLastTimeupdateT = -1
+  private dbgM3u8Info = ''  // parsed m3u8 summary
+  private dbgM3u8FetchId: ReturnType<typeof setInterval> | null = null
 
   // Listeners
   private stateListeners: Set<PipStateListener> = new Set()
@@ -323,6 +330,9 @@ class PipManager {
     // Fetch server debug every 5 seconds
     this.hlsDebugFetchId = setInterval(() => this.fetchServerDebug(), 5000)
     this.fetchServerDebug()
+    // Fetch m3u8 every 3 seconds to show segment info
+    this.dbgM3u8FetchId = setInterval(() => this.fetchM3u8Debug(), 3000)
+    this.fetchM3u8Debug()
     this.plog('debug overlay ready')
   }
 
@@ -367,18 +377,32 @@ class PipManager {
       }
     }
 
+    // Played ranges
+    const played = v && v.played.length > 0
+      ? Array.from({length: v.played.length}, (_, i) => `${v!.played.start(i).toFixed(1)}-${v!.played.end(i).toFixed(1)}`).join(',')
+      : 'none'
+
+    // src-swap age
+    const swapAge = this.dbgSrcSwapTime > 0 ? `${Math.round((Date.now() - this.dbgSrcSwapTime)/1000)}s ago` : '-'
+
+    // Current src (last 30 chars)
+    const curSrc = v?.src ? v.src.slice(-30) : 'none'
+
     this.debugStateEl.textContent = [
       `mode:${this.pipMode} | active:${this.isActive} starting:${this.isStarting}`,
       `ready:${this.hlsReady} | loading:${this.hlsLoading} gen:${this.hlsLoadGeneration}`,
       `rs:${rs}(${rsLabels[rs]??'?'}) net:${net}(${netLabels[net]??'?'})`,
       `t:${v ? v.currentTime.toFixed(2)+'s' : '?'} | dur:${v ? (isFinite(v.duration)?v.duration.toFixed(1):'∞') : '?'}`,
       `buf:${this.fmtBuf(v!)} | seek:${seekable}`,
+      `played:${played} | tuCnt:${this.dbgTimeupdateCount}`,
       `paused:${v?.paused??'?'} | ended:${v?.ended??'?'}`,
       `err:${(v as any)?.error?.code ?? 'none'}`,
+      `srcSwap:${this.dbgSrcSwapState} (${swapAge})`,
+      `curSrc:…${curSrc}`,
+      `m3u8:${this.dbgM3u8Info}`,
       `data:${symCount}sym cd:${this.globalCountdown}s ${stale}`,
       `push:${this.hlsPushStatus} (${pushAge})`,
       `front_candles:${frontCandles.join(' ') || 'none'}`,
-      `url:…${hlsShort}`,
     ].join('\n')
 
     // Update server section
@@ -417,6 +441,25 @@ class PipManager {
         if (json.candle_counts) this.hlsCandleCounts = json.candle_counts
       })
       .catch(() => {})
+  }
+
+  private fetchM3u8Debug(): void {
+    if (!this.hlsUrl) { this.dbgM3u8Info = 'no url'; return }
+    const sep = this.hlsUrl.includes('?') ? '&' : '?'
+    fetch(`${this.hlsUrl}${sep}_dbg=${Date.now()}`, { signal: AbortSignal.timeout(3000) })
+      .then(res => res.ok ? res.text() : null)
+      .then(text => {
+        if (!text) { this.dbgM3u8Info = 'm3u8:404'; return }
+        const lines = text.split('\n')
+        const segs = lines.filter(l => l.endsWith('.ts'))
+        const seqMatch = text.match(/#EXT-X-MEDIA-SEQUENCE:(\d+)/)
+        const seq = seqMatch ? seqMatch[1] : '?'
+        const targetMatch = text.match(/#EXT-X-TARGETDURATION:(\d+)/)
+        const target = targetMatch ? targetMatch[1] : '?'
+        const hasEnd = text.includes('#EXT-X-ENDLIST')
+        this.dbgM3u8Info = `seq:${seq} segs:${segs.length} td:${target}s ${hasEnd?'VOD':'LIVE'} [${segs.map(s=>s.replace('signal','').replace('.ts','')).join(',')}]`
+      })
+      .catch(e => { this.dbgM3u8Info = `m3u8:err:${e?.message?.slice(0,20)}` })
   }
 
   private subscribeToSignalService(): void {
@@ -718,6 +761,8 @@ class PipManager {
     })
     let lastLoggedTime = -1
     v.addEventListener('timeupdate', () => {
+      this.dbgTimeupdateCount++
+      this.dbgLastTimeupdateT = v.currentTime
       if (Math.abs(v.currentTime - lastLoggedTime) >= 1) {
         lastLoggedTime = v.currentTime
         this.plog(`ev:timeupdate t=${v.currentTime.toFixed(1)}s rs=${v.readyState}`)
@@ -1010,19 +1055,25 @@ class PipManager {
           const sep = this.hlsUrl.includes('?') ? '&' : '?'
           const freshUrl = `${this.hlsUrl}${sep}_live=${Date.now()}`
           this.plog(`src-swap to live edge: ${freshUrl.slice(-40)}`)
+          this.dbgSrcSwapState = 'swapped'
+          this.dbgSrcSwapTime = Date.now()
+          this.dbgTimeupdateCount = 0
 
           // Listen for new src to become playable, then resume
           const onReady = () => {
             v.removeEventListener('canplay', onReady)
             v.removeEventListener('loadeddata', onReadyFallback)
             if (!this.isActive || v !== this.hlsVideo) return
-            this.plog(`src-swap loaded rs=${v.readyState} → play()`)
+            this.dbgSrcSwapState = 'canplay'
+            this.plog(`src-swap loaded rs=${v.readyState} buf=${this.fmtBuf(v)} → play()`)
             this.playPending = true
             v.play().then(() => {
               this.playPending = false
-              this.plog(`src-swap playing t=${v.currentTime.toFixed(1)}s ✓`)
+              this.dbgSrcSwapState = 'playing'
+              this.plog(`src-swap playing t=${v.currentTime.toFixed(1)}s paused=${v.paused} ✓`)
             }).catch((err: any) => {
               this.playPending = false
+              this.dbgSrcSwapState = `failed:${err?.name}`
               this.plog(`src-swap play err: ${err?.name ?? err}`)
             })
           }
@@ -1933,6 +1984,10 @@ class PipManager {
     if (this.hlsDebugFetchId) {
       clearInterval(this.hlsDebugFetchId)
       this.hlsDebugFetchId = null
+    }
+    if (this.dbgM3u8FetchId) {
+      clearInterval(this.dbgM3u8FetchId)
+      this.dbgM3u8FetchId = null
     }
     if (this.debugOverlay && this.debugOverlay.parentNode) {
       this.debugOverlay.parentNode.removeChild(this.debugOverlay)
