@@ -606,9 +606,9 @@ class PipManager {
   // แก้ปัญหา: VPS HLS streamer ไม่ได้รับ MT5 bridge data โดยตรง
   private pushDataToHlsServer(data: RealtimeData): void {
     if (!this.hlsUrl) return
-    // Rate-limit: push ไม่เกิน 1 ครั้ง/5 วิ
+    // Rate-limit: push ทุก 1 วิ (ลดจาก 5 วิ → ลด HLS delay)
     const now = Date.now()
-    if (now - this.hlsPushLastTime < 5000) return
+    if (now - this.hlsPushLastTime < 1000) return
     this.hlsPushLastTime = now
 
     const baseUrl = this.hlsUrl.replace(/\/stream\/.*/, '')
