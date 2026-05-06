@@ -1003,20 +1003,51 @@ class PipManager {
         // iOS ignores v.currentTime on live HLS — seeking doesn't work at all.
         // Instead: swap src to a FRESH cache-busted URL after PiP entry.
         // A fresh HLS load automatically starts from the live edge.
+        // MUST wait for canplay before play() — iOS pauses video on src change
+        // and play() before load completes gets AbortError.
         setTimeout(() => {
           if (!this.isActive || v !== this.hlsVideo || !this.hlsUrl) return
           const sep = this.hlsUrl.includes('?') ? '&' : '?'
           const freshUrl = `${this.hlsUrl}${sep}_live=${Date.now()}`
           this.plog(`src-swap to live edge: ${freshUrl.slice(-40)}`)
+
+          // Listen for new src to become playable, then resume
+          const onReady = () => {
+            v.removeEventListener('canplay', onReady)
+            v.removeEventListener('loadeddata', onReadyFallback)
+            if (!this.isActive || v !== this.hlsVideo) return
+            this.plog(`src-swap loaded rs=${v.readyState} → play()`)
+            this.playPending = true
+            v.play().then(() => {
+              this.playPending = false
+              this.plog(`src-swap playing t=${v.currentTime.toFixed(1)}s ✓`)
+            }).catch((err: any) => {
+              this.playPending = false
+              this.plog(`src-swap play err: ${err?.name ?? err}`)
+            })
+          }
+          const onReadyFallback = () => {
+            // loadeddata fires before canplay on iOS — use as fallback
+            if (v.readyState >= 2) onReady()
+          }
+          v.addEventListener('canplay', onReady, { once: true })
+          v.addEventListener('loadeddata', onReadyFallback, { once: true })
+
+          // Set fresh src — iOS reloads m3u8 from live edge
           v.src = freshUrl
-          this.playPending = true
-          v.play().then(() => {
-            this.playPending = false
-            this.plog(`src-swap play ok t=${v.currentTime.toFixed(1)}s`)
-          }).catch((err: any) => {
-            this.playPending = false
-            if (err?.name !== 'AbortError') this.plog(`src-swap play err: ${err?.name}`)
-          })
+          v.load()  // force reload
+
+          // Safety: if no event fires within 5s, force play anyway
+          setTimeout(() => {
+            v.removeEventListener('canplay', onReady)
+            v.removeEventListener('loadeddata', onReadyFallback)
+            if (!this.isActive || v !== this.hlsVideo) return
+            if (v.paused) {
+              this.plog(`src-swap timeout 5s rs=${v.readyState} → force play`)
+              this.playPending = true
+              v.play().catch(() => {}).finally(() => { this.playPending = false })
+            }
+          }, 5000)
         }, 500)
       } else if ('requestPictureInPicture' in v) {
         this.plog('play()...')
@@ -1063,29 +1094,22 @@ class PipManager {
         if (timeStuck) {
           stuckTicks++
 
-          if (stuckTicks === 3) {
-            // 6s stall — src-swap to force fresh live-edge load
-            // iOS ignores v.currentTime on live HLS, so seek won't help
-            this.plog(`stall 6s t=${v.currentTime.toFixed(1)}s → src-swap to live edge`)
+          if (stuckTicks === 3 || stuckTicks === 8) {
+            // 6s or 16s stall — src-swap + wait for canplay + play
+            this.plog(`stall ${stuckTicks * 2}s t=${v.currentTime.toFixed(1)}s → src-swap`)
             if (this.hlsUrl) {
               const sep = this.hlsUrl.includes('?') ? '&' : '?'
               v.src = `${this.hlsUrl}${sep}_live=${Date.now()}`
-              this.playPending = true
-              v.play().catch(() => {}).finally(() => { this.playPending = false })
-            }
-
-          } else if (stuckTicks === 8) {
-            // 16s stall — pause + src-swap + play
-            this.plog(`stall 16s → pause + src-swap`)
-            v.pause()
-            setTimeout(() => {
-              if (this.isActive && v === this.hlsVideo && this.hlsUrl) {
-                const sep = this.hlsUrl.includes('?') ? '&' : '?'
-                v.src = `${this.hlsUrl}${sep}_live=${Date.now()}`
-                this.playPending = true
-                v.play().catch(() => {}).finally(() => { this.playPending = false })
+              v.load()
+              const onReady = () => {
+                v.removeEventListener('canplay', onReady)
+                if (this.isActive && v === this.hlsVideo) {
+                  this.playPending = true
+                  v.play().catch(() => {}).finally(() => { this.playPending = false })
+                }
               }
-            }, 300)
+              v.addEventListener('canplay', onReady, { once: true })
+            }
 
           } else if (stuckTicks === 15) {
             // 30s stall — exit PiP + re-preload
