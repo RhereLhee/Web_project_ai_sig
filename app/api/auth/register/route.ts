@@ -55,22 +55,28 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 3. Check existing user — แยกข้อความให้ผู้ใช้รู้ว่าซ้ำที่ field ไหน
-    const existingByEmail = await prisma.user.findUnique({
-      where: { email: normalizedEmail },
-      select: { id: true },
-    })
+    // 3. Check existing user + find referrer + hash password in parallel
+    const [existingByEmail, existingByPhone, referrer, hashedPassword] = await Promise.all([
+      prisma.user.findUnique({
+        where: { email: normalizedEmail },
+        select: { id: true },
+      }),
+      prisma.user.findFirst({
+        where: { phone: formattedPhone },
+        select: { id: true },
+      }),
+      referralCode
+        ? prisma.user.findUnique({ where: { referralCode }, select: { id: true } })
+        : Promise.resolve(null),
+      bcrypt.hash(password, 12),
+    ])
+
     if (existingByEmail) {
       return NextResponse.json(
         { error: 'อีเมลนี้ถูกใช้งานแล้ว กรุณาใช้อีเมลอื่นหรือเข้าสู่ระบบ', field: 'email' },
         { status: 409 }
       )
     }
-
-    const existingByPhone = await prisma.user.findFirst({
-      where: { phone: formattedPhone },
-      select: { id: true },
-    })
     if (existingByPhone) {
       return NextResponse.json(
         { error: 'เบอร์โทรนี้ถูกใช้งานแล้ว กรุณาใช้เบอร์อื่น', field: 'phone' },
@@ -78,20 +84,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 4. Find referrer
-    let referredById: string | null = null
-    if (referralCode) {
-      const referrer = await prisma.user.findUnique({
-        where: { referralCode },
-        select: { id: true },
-      })
-      if (referrer) {
-        referredById = referrer.id
-      }
-    }
-
-    // 5. Hash password
-    const hashedPassword = await bcrypt.hash(password, 12)
+    const referredById = referrer?.id ?? null
 
     // 6. Create user
     const user = await prisma.user.create({

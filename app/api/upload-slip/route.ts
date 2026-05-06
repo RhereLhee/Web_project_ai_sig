@@ -17,7 +17,7 @@ import { join } from 'path'
 import { existsSync } from 'fs'
 import { verifySlip, sha256, type SlipVerifyStatus } from '@/lib/slipok'
 import { logger } from '@/lib/logger'
-import { sendSlipSubmittedAlert } from '@/lib/email'
+import { sendSlipSubmittedAlert, sendSlipVerifiedEmail, sendSlipRejectedEmail, sendSlipPendingEmail } from '@/lib/email'
 import { activateOrder } from '@/lib/order-approve'
 import { Prisma, SlipVerificationStatus } from '@prisma/client'
 
@@ -267,6 +267,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Send notifications (fire-and-forget)
     const adminEmail = process.env.ALERT_EMAIL
     if (adminEmail) {
       sendSlipSubmittedAlert({
@@ -282,6 +283,25 @@ export async function POST(request: NextRequest) {
         senderBank: verification.parsed.senderBank ?? null,
         senderName: verification.parsed.senderName ?? null,
       }).catch(() => {})
+    }
+
+    if (user?.email) {
+      const notifData = {
+        orderNumber,
+        verificationStatus: verification.status as 'VERIFIED' | 'REJECTED' | 'PENDING',
+        errorMessage: verification.errorMessage,
+        amount: verification.parsed.amountSatang,
+        autoApproved,
+      }
+
+      const sendBuyerEmail =
+        verification.status === 'VERIFIED'
+          ? sendSlipVerifiedEmail(user.email, notifData)
+          : verification.status === 'REJECTED'
+            ? sendSlipRejectedEmail(user.email, notifData)
+            : sendSlipPendingEmail(user.email, notifData)
+
+      sendBuyerEmail.catch(() => {})
     }
 
     const message = autoApproved

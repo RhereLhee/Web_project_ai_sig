@@ -447,3 +447,136 @@ export async function sendWithdrawalRejectedEmail(
 
   return sendEmail(email, 'แจ้งผลคำขอถอนเงิน - TechTrade', html)
 }
+
+// ============================================
+// SLIP UPLOAD NOTIFICATION — BUYER
+// ============================================
+
+interface SlipNotificationData {
+  orderNumber: string
+  verificationStatus: 'VERIFIED' | 'REJECTED' | 'PENDING'
+  errorMessage?: string | null
+  amount?: number | null
+  autoApproved?: boolean
+}
+
+export async function sendSlipVerifiedEmail(
+  email: string,
+  data: SlipNotificationData,
+): Promise<SendEmailResult> {
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 24px; text-align: center;">
+        <h2 style="color: white; margin: 0;">TechTrade</h2>
+      </div>
+      <div style="padding: 30px; background: #f9fafb;">
+        <p style="color: #4b5563;">เรียน ลูกค้าที่เคารพ</p>
+        <p style="color: #4b5563;">
+          ขอแจ้งให้ทราบว่า สลิปชำระเงินสำหรับคำสั่งซื้อหมายเลข
+          <strong>${data.orderNumber}</strong> ผ่านการตรวจสอบเรียบร้อยแล้ว
+        </p>
+        <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 16px; margin: 20px 0; text-align: center;">
+          <p style="color: #065f46; font-size: 18px; font-weight: bold; margin: 0;">ชำระเงินสำเร็จ</p>
+          ${data.amount ? `<p style="color: #059669; font-size: 14px; margin: 8px 0 0;">จำนวน ฿${(data.amount / 100).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</p>` : ''}
+        </div>
+        ${data.autoApproved
+          ? `<p style="color: #4b5563;">ระบบได้เปิดใช้งานบริการให้ท่านแล้ว ท่านสามารถเข้าใช้งานได้ทันที</p>`
+          : `<p style="color: #4b5563;">ระบบได้รับสลิปของท่านแล้ว อยู่ระหว่างรอทีมงานยืนยันและเปิดใช้งานให้ ซึ่งจะดำเนินการภายใน 1-3 วันทำการ</p>`
+        }
+        <p style="color: #4b5563;">
+          หากมีข้อสงสัยเพิ่มเติม กรุณาติดต่อทีมงานผ่านช่องทางที่กำหนด
+        </p>
+        <p style="color: #6b7280; margin-top: 30px;">
+          ขอแสดงความนับถือ<br>
+          <strong>ทีมงาน TechTrade</strong>
+        </p>
+      </div>
+      <div style="background: #111827; padding: 16px; text-align: center;">
+        <p style="color: #6b7280; font-size: 12px; margin: 0;">อีเมลนี้ถูกส่งโดยอัตโนมัติ กรุณาอย่าตอบกลับ</p>
+      </div>
+    </div>
+  `
+  return sendEmail(email, `แจ้งผลการชำระเงิน คำสั่งซื้อ ${data.orderNumber} - TechTrade`, html)
+}
+
+export async function sendSlipRejectedEmail(
+  email: string,
+  data: SlipNotificationData,
+): Promise<SendEmailResult> {
+  const reason = data.errorMessage || 'สลิปไม่ผ่านการตรวจสอบ'
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 24px; text-align: center;">
+        <h2 style="color: white; margin: 0;">TechTrade</h2>
+      </div>
+      <div style="padding: 30px; background: #f9fafb;">
+        <p style="color: #4b5563;">เรียน ลูกค้าที่เคารพ</p>
+        <p style="color: #4b5563;">
+          ขอแจ้งให้ทราบว่า สลิปชำระเงินสำหรับคำสั่งซื้อหมายเลข
+          <strong>${data.orderNumber}</strong> ไม่ผ่านการตรวจสอบ
+        </p>
+        <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin: 20px 0;">
+          <p style="color: #991b1b; font-weight: bold; margin: 0 0 8px;">สาเหตุ</p>
+          <p style="color: #991b1b; margin: 0;">${reason}</p>
+        </div>
+        <p style="color: #4b5563;">
+          กรุณาตรวจสอบสลิปของท่านและอัปโหลดใหม่อีกครั้ง โดยตรวจสอบให้แน่ใจว่า:
+        </p>
+        <ul style="color: #4b5563; padding-left: 20px;">
+          <li>โอนเงินไปยังบัญชีปลายทางที่ระบุไว้ในหน้าชำระเงิน</li>
+          <li>จำนวนเงินตรงตามที่ระบุไว้ในคำสั่งซื้อ</li>
+          <li>สลิปมีความชัดเจนและไม่ถูกตัดหรือแก้ไข</li>
+        </ul>
+        <p style="color: #4b5563;">
+          หากท่านมั่นใจว่าชำระเงินถูกต้องแล้ว กรุณาติดต่อทีมงานเพื่อให้ตรวจสอบเพิ่มเติม
+        </p>
+        <p style="color: #6b7280; margin-top: 30px;">
+          ขอแสดงความนับถือ<br>
+          <strong>ทีมงาน TechTrade</strong>
+        </p>
+      </div>
+      <div style="background: #111827; padding: 16px; text-align: center;">
+        <p style="color: #6b7280; font-size: 12px; margin: 0;">อีเมลนี้ถูกส่งโดยอัตโนมัติ กรุณาอย่าตอบกลับ</p>
+      </div>
+    </div>
+  `
+  return sendEmail(email, `แจ้งผลการชำระเงิน คำสั่งซื้อ ${data.orderNumber} - TechTrade`, html)
+}
+
+export async function sendSlipPendingEmail(
+  email: string,
+  data: SlipNotificationData,
+): Promise<SendEmailResult> {
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 24px; text-align: center;">
+        <h2 style="color: white; margin: 0;">TechTrade</h2>
+      </div>
+      <div style="padding: 30px; background: #f9fafb;">
+        <p style="color: #4b5563;">เรียน ลูกค้าที่เคารพ</p>
+        <p style="color: #4b5563;">
+          ขอแจ้งให้ทราบว่า ระบบได้รับสลิปชำระเงินสำหรับคำสั่งซื้อหมายเลข
+          <strong>${data.orderNumber}</strong> เรียบร้อยแล้ว
+        </p>
+        <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 16px; margin: 20px 0; text-align: center;">
+          <p style="color: #92400e; font-size: 18px; font-weight: bold; margin: 0;">อยู่ระหว่างตรวจสอบ</p>
+          <p style="color: #92400e; font-size: 14px; margin: 8px 0 0;">ทีมงานจะตรวจสอบและดำเนินการภายใน 1-3 วันทำการ</p>
+        </div>
+        <p style="color: #4b5563;">
+          เมื่อทีมงานตรวจสอบเสร็จสิ้น ท่านจะได้รับการแจ้งเตือนอีกครั้ง
+        </p>
+        <p style="color: #4b5563;">
+          หากมีข้อสงสัยเพิ่มเติม กรุณาติดต่อทีมงานผ่านช่องทางที่กำหนด
+        </p>
+        <p style="color: #6b7280; margin-top: 30px;">
+          ขอแสดงความนับถือ<br>
+          <strong>ทีมงาน TechTrade</strong>
+        </p>
+      </div>
+      <div style="background: #111827; padding: 16px; text-align: center;">
+        <p style="color: #6b7280; font-size: 12px; margin: 0;">อีเมลนี้ถูกส่งโดยอัตโนมัติ กรุณาอย่าตอบกลับ</p>
+      </div>
+    </div>
+  `
+  return sendEmail(email, `แจ้งรับสลิปชำระเงิน คำสั่งซื้อ ${data.orderNumber} - TechTrade`, html)
+}

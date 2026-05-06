@@ -2,12 +2,8 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { jwtVerify } from 'jose'
 
-const ACCESS_SECRET = new TextEncoder().encode(
-  process.env.JWT_ACCESS_SECRET || 'access-secret-key-min-32-chars!!'
-)
-const REFRESH_SECRET = new TextEncoder().encode(
-  process.env.JWT_REFRESH_SECRET || 'refresh-secret-key-min-32-chars!!'
-)
+const ACCESS_SECRET = new TextEncoder().encode(process.env.JWT_ACCESS_SECRET)
+const REFRESH_SECRET = new TextEncoder().encode(process.env.JWT_REFRESH_SECRET)
 
 const protectedRoutes = ['/dashboard', '/signals', '/courses', '/profile', '/pricing', '/checkout', '/admin', '/affiliate', '/partner']
 const authRoutes = ['/login', '/register']

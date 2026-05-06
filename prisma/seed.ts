@@ -212,8 +212,8 @@ async function main() {
 
   console.log('\nSeed completed!\n')
   console.log('Test accounts:')
-  console.log('  Admin: admin@techtrade.io / admin123456')
-  console.log('  Demo:  demo@techtrade.io / demo123456')
+  console.log('  Admin: admin@techtrade.io')
+  console.log('  Demo:  demo@techtrade.io')
 }
 
 main()

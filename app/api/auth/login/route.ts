@@ -189,17 +189,6 @@ export async function POST(req: NextRequest) {
     // 7. LOGIN SUCCESS 
     // ============================================
     
-    // Reset failed attempts
-    await resetFailedLogins(user.id)
-    
-    // Login สำเร็จ Reset Rate Limit ของ IP นี้
-    try {
-      await resetRateLimit(ip, 'LOGIN')
-    } catch (e) {
-      // Ignore if function doesn't exist
-    }
-
-    // Create tokens
     const payload = {
       userId: user.id,
       email: user.email || '',
@@ -209,36 +198,33 @@ export async function POST(req: NextRequest) {
 
     const { accessToken, refreshToken } = await createTokens(payload)
 
-    // Save refresh token
+    // Critical path: save refresh token + update last login
     await prisma.user.update({
       where: { id: user.id },
-      data: { 
+      data: {
         refreshToken,
         lastLoginAt: new Date(),
         lastLoginIp: ip,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
       }
     })
 
-    // Record login history
-    await recordLoginHistory({
-      userId: user.id,
-      ip,
-      userAgent,
-      success: true,
-    })
+    // Non-critical post-login writes — fire and forget
+    Promise.all([
+      resetRateLimit(ip, 'LOGIN').catch(() => {}),
+      recordLoginHistory({ userId: user.id, ip, userAgent, success: true }).catch(() => {}),
+      createAuditLog({
+        userId: user.id,
+        userEmail: user.email,
+        action: 'LOGIN',
+        entity: 'User',
+        entityId: user.id,
+        ip,
+        userAgent,
+      }).catch(() => {}),
+    ]).catch(() => {})
 
-    // Audit log
-    await createAuditLog({
-      userId: user.id,
-      userEmail: user.email,
-      action: 'LOGIN',
-      entity: 'User',
-      entityId: user.id,
-      ip,
-      userAgent,
-    })
-
-    // Activity log — ดูได้ใน Admin > Logs
     logger.info(`เข้าสู่ระบบ: ${user.email} (${user.role})`, {
       context: 'auth',
       userId: user.id,
