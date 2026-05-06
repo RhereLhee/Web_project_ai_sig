@@ -18,6 +18,21 @@ export async function POST(
     const admin = await requireAdmin()
     const { id } = await params
 
+    // Admin cannot mark their own withdrawal as paid
+    const withdrawal = await prisma.withdrawal.findUnique({
+      where: { id },
+      select: { userId: true },
+    })
+    if (!withdrawal) {
+      return NextResponse.json({ error: 'ไม่พบคำขอถอนเงิน' }, { status: 404 })
+    }
+    if (withdrawal.userId === admin?.id) {
+      return NextResponse.json(
+        { error: 'Admin ไม่สามารถยืนยันการโอนเงินของตัวเองได้' },
+        { status: 403 },
+      )
+    }
+
     let paymentRef: string | undefined
     try {
       const body = await request.json()

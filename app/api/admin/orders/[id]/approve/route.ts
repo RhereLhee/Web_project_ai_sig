@@ -40,6 +40,11 @@ export async function POST(
             return { kind: 'error' as const, error: 'ไม่พบออเดอร์', status: 404 }
           }
 
+          // Admin cannot approve their own order — conflict of interest
+          if (order.userId === admin.id) {
+            return { kind: 'error' as const, error: 'Admin ไม่สามารถอนุมัติ order ของตัวเองได้', status: 403 }
+          }
+
           // Idempotent inside: if already PAID, return success without side-effects.
           if (order.status === 'PAID') {
             return {

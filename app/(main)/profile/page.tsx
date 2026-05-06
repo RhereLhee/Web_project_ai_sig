@@ -202,6 +202,7 @@ export default async function ProfilePage() {
         user={{ name: user.name, phone: displayPhone, email: user.email ?? "" }}
         isPhoneLocked={isPhoneLocked}
         hasReferrals={stats.referrals > 0}
+        isAdmin={user.role === "ADMIN"}
       />
     </div>
   )

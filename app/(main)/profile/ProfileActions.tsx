@@ -16,9 +16,10 @@ interface ProfileActionsProps {
   }
   isPhoneLocked: boolean
   hasReferrals: boolean
+  isAdmin: boolean
 }
 
-export function ProfileActions({ user, isPhoneLocked, hasReferrals }: ProfileActionsProps) {
+export function ProfileActions({ user, isPhoneLocked, hasReferrals, isAdmin }: ProfileActionsProps) {
   const [editOpen, setEditOpen] = useState(false)
   const [pwOpen, setPwOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -79,27 +80,29 @@ export function ProfileActions({ user, isPhoneLocked, hasReferrals }: ProfileAct
         </div>
       </section>
 
-      {/* ── Danger Zone ── */}
-      <section className="bg-white rounded-xl shadow-sm p-5 md:p-6 border border-red-100">
-        <h2 className="font-semibold text-red-700 mb-1">Danger Zone</h2>
-        <p className="text-sm text-gray-500 mb-4">การกระทำในส่วนนี้ไม่สามารถย้อนกลับได้</p>
-        <div className="flex items-center justify-between p-4 bg-red-50 border border-red-200 rounded-lg">
-          <div>
-            <p className="text-sm font-medium text-red-800">ลบบัญชี</p>
-            <p className="text-xs text-red-600 mt-0.5">
-              {hasReferrals
-                ? "สมาชิกในสายของคุณจะย้ายขึ้นหาผู้แนะนำระดับบน"
-                : "ลบข้อมูลส่วนตัวทั้งหมดออกจากระบบ"}
-            </p>
+      {/* ── Danger Zone — ซ่อนสำหรับ Admin ── */}
+      {!isAdmin && (
+        <section className="bg-white rounded-xl shadow-sm p-5 md:p-6 border border-red-100">
+          <h2 className="font-semibold text-red-700 mb-1">Danger Zone</h2>
+          <p className="text-sm text-gray-500 mb-4">การกระทำในส่วนนี้ไม่สามารถย้อนกลับได้</p>
+          <div className="flex items-center justify-between p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div>
+              <p className="text-sm font-medium text-red-800">ลบบัญชี</p>
+              <p className="text-xs text-red-600 mt-0.5">
+                {hasReferrals
+                  ? "สมาชิกในสายของคุณจะย้ายขึ้นหาผู้แนะนำระดับบน"
+                  : "ลบข้อมูลส่วนตัวทั้งหมดออกจากระบบ"}
+              </p>
+            </div>
+            <button
+              onClick={() => setDeleteOpen(true)}
+              className="px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            >
+              ลบบัญชี
+            </button>
           </div>
-          <button
-            onClick={() => setDeleteOpen(true)}
-            className="px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-          >
-            ลบบัญชี
-          </button>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* Modals */}
       <ProfileEditForm

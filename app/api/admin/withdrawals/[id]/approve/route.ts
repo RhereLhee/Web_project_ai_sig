@@ -1,6 +1,7 @@
 // app/api/admin/withdrawals/[id]/approve/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
 import { approveWithdrawal, WithdrawalError } from '@/lib/withdrawal'
 import { getIdempotencyKey, withIdempotency } from '@/lib/idempotency'
 import { logger } from '@/lib/logger'
@@ -12,6 +13,21 @@ export async function POST(
   try {
     const admin = await requireAdmin()
     const { id } = await params
+
+    // Admin cannot approve their own withdrawal — conflict of interest
+    const withdrawal = await prisma.withdrawal.findUnique({
+      where: { id },
+      select: { userId: true },
+    })
+    if (!withdrawal) {
+      return NextResponse.json({ error: 'ไม่พบคำขอถอนเงิน' }, { status: 404 })
+    }
+    if (withdrawal.userId === admin?.id) {
+      return NextResponse.json(
+        { error: 'Admin ไม่สามารถอนุมัติคำขอถอนเงินของตัวเองได้' },
+        { status: 403 },
+      )
+    }
 
     const idempKey = getIdempotencyKey(request) ?? `wd_approve:${id}:${admin?.id}`
     const actorIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null
