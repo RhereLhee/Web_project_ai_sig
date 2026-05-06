@@ -78,36 +78,13 @@ class PipManager {
   private hlsLoadGeneration = 0 // prevents stale closures from affecting new loads
   private mediaSessionIntervalId: ReturnType<typeof setInterval> | null = null
 
-  // Debug overlay (เปิดใช้งานเมื่อ URL มี ?pip_debug)
-  private debugOverlay: HTMLDivElement | null = null
-  private debugLogEl: HTMLPreElement | null = null
-  private debugStateEl: HTMLDivElement | null = null
-  private debugRefreshId: ReturnType<typeof setInterval> | null = null
-  private logHistory: string[] = []
-
   // HLS push tracking
-  private hlsPushStatus = 'never'   // 'never' | 'ok' | 'fail:...'
   private hlsPushCount = 0
   private hlsPushLastTime = 0
 
-  // Server-side debug info (fetched from /hls/push response or /debug/hls)
-  private hlsServerSrc = '?'        // bridge | cached_bridge | frontend_push | mock
-  private hlsServerMode = '?'
-  private hlsBridgeAge = -1          // seconds since last bridge update
-  private hlsBridgeConnected = false
-  private hlsServerCountdown = 0
-  private hlsCandleCounts: Record<string, number> = {}
-  private hlsDebugFetchId: ReturnType<typeof setInterval> | null = null
   private hlsFirstPushOkTime = 0  // timestamp of first successful push for current hlsUrl
   private hlsVideoCanPlay = false // video canplay fired (separate from hlsReady)
   private hlsReadyDelayId: ReturnType<typeof setTimeout> | null = null
-  // Enhanced debug tracking
-  private dbgSrcSwapState = 'none'  // none | swapped | canplay | playing | failed
-  private dbgSrcSwapTime = 0
-  private dbgTimeupdateCount = 0
-  private dbgLastTimeupdateT = -1
-  private dbgM3u8Info = ''  // parsed m3u8 summary
-  private dbgM3u8FetchId: ReturnType<typeof setInterval> | null = null
 
   // Listeners
   private stateListeners: Set<PipStateListener> = new Set()
@@ -281,186 +258,8 @@ class PipManager {
     // Subscribe to signal service
     this.subscribeToSignalService()
 
-    // Debug overlay — เปิดได้ใน production ผ่าน ?pip_debug ใน URL
-    if (typeof window !== 'undefined' && window.location.search.includes('pip_debug')) {
-      this.initDebugOverlay()
-    }
   }
 
-  // ============================================
-  // DEBUG OVERLAY
-  // ============================================
-
-  private debugServerEl: HTMLDivElement | null = null
-
-  private initDebugOverlay(): void {
-    if (this.debugOverlay) return
-    const div = document.createElement('div')
-    div.id = 'pip-debug-overlay'
-    div.style.cssText = [
-      'position:fixed', 'top:8px', 'left:8px', 'z-index:999999',
-      'background:rgba(0,0,0,0.85)', 'color:#0f0', 'font:11px/1.4 monospace',
-      'padding:8px', 'border-radius:6px', 'max-width:360px',
-      'pointer-events:none', 'white-space:pre-wrap', 'word-break:break-all',
-    ].join(';')
-
-    const title = document.createElement('div')
-    title.style.cssText = 'color:#fff;font-weight:bold;margin-bottom:4px'
-    title.textContent = '── PiP Debug ──'
-
-    this.debugStateEl = document.createElement('div')
-    this.debugStateEl.style.cssText = 'color:#ff0;margin-bottom:4px'
-
-    // Server-side info section
-    this.debugServerEl = document.createElement('div')
-    this.debugServerEl.style.cssText = 'color:#0ff;margin-bottom:4px;border-top:1px solid #333;padding-top:4px'
-
-    this.debugLogEl = document.createElement('pre')
-    this.debugLogEl.style.cssText = 'margin:0;color:#0f0;font-size:10px;max-height:160px;overflow:hidden'
-
-    div.appendChild(title)
-    div.appendChild(this.debugStateEl)
-    div.appendChild(this.debugServerEl)
-    div.appendChild(this.debugLogEl)
-    document.body.appendChild(div)
-    this.debugOverlay = div
-
-    // Refresh state every second
-    this.debugRefreshId = setInterval(() => this.refreshDebug(), 1000)
-    // Fetch server debug every 5 seconds
-    this.hlsDebugFetchId = setInterval(() => this.fetchServerDebug(), 5000)
-    this.fetchServerDebug()
-    // Fetch m3u8 every 3 seconds to show segment info
-    this.dbgM3u8FetchId = setInterval(() => this.fetchM3u8Debug(), 3000)
-    this.fetchM3u8Debug()
-    this.plog('debug overlay ready')
-  }
-
-  private plog(msg: string): void {
-    const ts = new Date().toTimeString().slice(0, 8)
-    const line = `${ts} ${msg}`
-    console.log(`[PiP] ${line}`)
-    if (!this.debugLogEl) return
-    this.logHistory.push(line)
-    if (this.logHistory.length > 20) this.logHistory.shift()
-    this.debugLogEl.textContent = this.logHistory.join('\n')
-  }
-
-  private refreshDebug(): void {
-    if (!this.debugStateEl) return
-    const v = this.hlsVideo
-    const seekable = v && v.seekable.length > 0
-      ? `${v.seekable.start(0).toFixed(1)}-${v.seekable.end(v.seekable.length - 1).toFixed(1)}s`
-      : 'empty'
-    const netLabels = ['EMPTY','IDLE','LOADING','NO_SRC']
-    const rsLabels = ['NOTHING','METADATA','CURRENT','FUTURE','ENOUGH']
-    const rs = v?.readyState ?? -1
-    const net = v?.networkState ?? -1
-    // Data freshness — frontend side
-    const liveData = signalService.getData()
-    const symCount = liveData ? Object.keys(liveData.symbols || {}).length : 0
-    const stale = liveData?.stale ? '(STALE)' : ''
-    // Push age
-    const pushAge = this.hlsPushLastTime > 0
-      ? `${Math.round((Date.now() - this.hlsPushLastTime) / 1000)}s ago`
-      : 'never'
-    // HLS URL summary (last 25 chars)
-    const hlsShort = this.hlsUrl ? this.hlsUrl.slice(-25) : 'none'
-
-    // Frontend candle counts for comparison
-    const frontCandles: string[] = []
-    if (liveData?.symbols) {
-      for (const sym of SYMBOLS) {
-        const sd = liveData.symbols[sym]
-        const cnt = sd?.candles?.length ?? 0
-        frontCandles.push(`${sym.replace('m','').slice(0,3)}:${cnt}`)
-      }
-    }
-
-    // Played ranges
-    const played = v && v.played.length > 0
-      ? Array.from({length: v.played.length}, (_, i) => `${v!.played.start(i).toFixed(1)}-${v!.played.end(i).toFixed(1)}`).join(',')
-      : 'none'
-
-    // src-swap age
-    const swapAge = this.dbgSrcSwapTime > 0 ? `${Math.round((Date.now() - this.dbgSrcSwapTime)/1000)}s ago` : '-'
-
-    // Current src (last 30 chars)
-    const curSrc = v?.src ? v.src.slice(-30) : 'none'
-
-    this.debugStateEl.textContent = [
-      `mode:${this.pipMode} | active:${this.isActive} starting:${this.isStarting}`,
-      `ready:${this.hlsReady} | loading:${this.hlsLoading} gen:${this.hlsLoadGeneration}`,
-      `rs:${rs}(${rsLabels[rs]??'?'}) net:${net}(${netLabels[net]??'?'})`,
-      `t:${v ? v.currentTime.toFixed(2)+'s' : '?'} | dur:${v ? (isFinite(v.duration)?v.duration.toFixed(1):'∞') : '?'}`,
-      `buf:${this.fmtBuf(v!)} | seek:${seekable}`,
-      `played:${played} | tuCnt:${this.dbgTimeupdateCount}`,
-      `paused:${v?.paused??'?'} | ended:${v?.ended??'?'}`,
-      `err:${(v as any)?.error?.code ?? 'none'}`,
-      `srcSwap:${this.dbgSrcSwapState} (${swapAge})`,
-      `curSrc:…${curSrc}`,
-      `m3u8:${this.dbgM3u8Info}`,
-      `data:${symCount}sym cd:${this.globalCountdown}s ${stale}`,
-      `push:${this.hlsPushStatus} (${pushAge})`,
-      `front_candles:${frontCandles.join(' ') || 'none'}`,
-    ].join('\n')
-
-    // Update server section
-    if (this.debugServerEl) {
-      const srcColor = this.hlsServerSrc === 'bridge' ? '🟢' :
-                       this.hlsServerSrc === 'mock' ? '🔴' :
-                       this.hlsServerSrc === 'frontend_push' ? '🟡' :
-                       this.hlsServerSrc === 'cached_bridge' ? '🟠' : '⚪'
-      const serverCandles: string[] = []
-      for (const sym of SYMBOLS) {
-        const cnt = this.hlsCandleCounts[sym] ?? this.hlsCandleCounts[sym.replace('m','')] ?? '?'
-        serverCandles.push(`${sym.replace('m','').slice(0,3)}:${cnt}`)
-      }
-      this.debugServerEl.textContent = [
-        `── HLS Server ──`,
-        `${srcColor} src:${this.hlsServerSrc} mode:${this.hlsServerMode}`,
-        `bridge:${this.hlsBridgeConnected} age:${this.hlsBridgeAge >= 0 ? this.hlsBridgeAge+'s' : 'never'}`,
-        `srv_cd:${this.hlsServerCountdown}s`,
-        `srv_candles:${serverCandles.join(' ')}`,
-      ].join('\n')
-    }
-  }
-
-  private fetchServerDebug(): void {
-    if (!this.hlsUrl) return
-    const baseUrl = this.hlsUrl.replace(/\/stream\/.*/, '')
-    fetch(`${baseUrl}/debug/hls`, { signal: AbortSignal.timeout(3000) })
-      .then(res => res.ok ? res.json() : null)
-      .then(json => {
-        if (!json) return
-        this.hlsServerSrc = json.hls_src ?? '?'
-        this.hlsServerMode = json.hls_mode ?? '?'
-        this.hlsBridgeAge = json.bridge_age_s ?? -1
-        this.hlsBridgeConnected = json.bridge_connected ?? false
-        this.hlsServerCountdown = json.countdown ?? 0
-        if (json.candle_counts) this.hlsCandleCounts = json.candle_counts
-      })
-      .catch(() => {})
-  }
-
-  private fetchM3u8Debug(): void {
-    if (!this.hlsUrl) { this.dbgM3u8Info = 'no url'; return }
-    const sep = this.hlsUrl.includes('?') ? '&' : '?'
-    fetch(`${this.hlsUrl}${sep}_dbg=${Date.now()}`, { signal: AbortSignal.timeout(3000) })
-      .then(res => res.ok ? res.text() : null)
-      .then(text => {
-        if (!text) { this.dbgM3u8Info = 'm3u8:404'; return }
-        const lines = text.split('\n')
-        const segs = lines.filter(l => l.endsWith('.ts'))
-        const seqMatch = text.match(/#EXT-X-MEDIA-SEQUENCE:(\d+)/)
-        const seq = seqMatch ? seqMatch[1] : '?'
-        const targetMatch = text.match(/#EXT-X-TARGETDURATION:(\d+)/)
-        const target = targetMatch ? targetMatch[1] : '?'
-        const hasEnd = text.includes('#EXT-X-ENDLIST')
-        this.dbgM3u8Info = `seq:${seq} segs:${segs.length} td:${target}s ${hasEnd?'VOD':'LIVE'} [${segs.map(s=>s.replace('signal','').replace('.ts','')).join(',')}]`
-      })
-      .catch(e => { this.dbgM3u8Info = `m3u8:err:${e?.message?.slice(0,20)}` })
-  }
 
   private subscribeToSignalService(): void {
     // Subscribe to data updates
@@ -555,11 +354,9 @@ class PipManager {
 
       const isIOS = this.isIOS()
       const android = this.isAndroid()
-      console.log(`[PiP] start() — hlsUrl=${!!this.hlsUrl} hlsReady=${this.hlsReady} iOS=${isIOS} android=${android}`)
 
       const hlsSuccess = await this.startHlsPip()
       if (hlsSuccess) {
-        console.log('[PiP] → HLS PiP activated ✓')
         return
       }
 
@@ -568,7 +365,6 @@ class PipManager {
       // Popup เป็นแค่ overlay ในหน้าเว็บ ไม่ใช่ PiP จริง
       // → รอ HLS พร้อม แล้วให้ user tap ใหม่
       if (isIOS && this.hlsUrl) {
-        this.plog('iOS HLS not ready — skip fallback, retrying preload')
         if (!this.hlsLoading && !this.hlsReady) {
           this.preloadHlsVideo()
         }
@@ -579,13 +375,11 @@ class PipManager {
       if (!android) {
         const nativeSuccess = await this.startCanvasPip()
         if (nativeSuccess) {
-          console.log('[PiP] → Canvas PiP activated ✓')
           return
         }
       }
 
       // Real fallback — เมื่อไม่มี HLS URL เลย หรือ platform ไม่รองรับ PiP จริง
-      console.log('[PiP] → Popup fallback (no HLS or PiP unsupported)')
       this.pipMode = 'popup'
       await this.startPopupPip()
     } finally {
@@ -614,7 +408,6 @@ class PipManager {
     const baseUrl = this.hlsUrl.replace(/\/stream\/.*/, '')
     const symCount = Object.keys(data.symbols ?? {}).length
     const staleStr = data.stale ? ' stale' : ' live'
-    this.plog(`hls/push → ${baseUrl.slice(-30)} sym=${symCount}${staleStr} cd=${this.globalCountdown}`)
 
     const payload = {
       timestamp: new Date().toISOString(),
@@ -633,23 +426,11 @@ class PipManager {
       if (res.ok) {
         const json = await res.json().catch(() => ({}))
         const src = json.src ?? 'ok'
-        this.hlsPushStatus = `${src}#${this.hlsPushCount} sym=${json.symbols ?? '?'}`
-        // Capture server-side rendering info from enhanced response
-        this.hlsServerSrc = json.hls_rendering ?? '?'
-        this.hlsServerMode = json.hls_mode ?? '?'
-        this.hlsBridgeAge = json.bridge_age_s ?? -1
-        this.hlsBridgeConnected = json.bridge_connected ?? false
-        this.hlsServerCountdown = json.countdown ?? 0
-        if (json.candle_counts) this.hlsCandleCounts = json.candle_counts
         if (this.hlsFirstPushOkTime === 0) {
           this.hlsFirstPushOkTime = Date.now()
-          this.plog(`first push OK → segments will have real data in ~4s`)
           this.scheduleHlsReadyAfterPush()
         }
-        this.plog(`hls/push ✓ ${this.hlsPushStatus} render:${this.hlsServerSrc}`)
       } else {
-        this.hlsPushStatus = `fail:${res.status}#${this.hlsPushCount}`
-        this.plog(`hls/push ✗ ${res.status} ${res.statusText}`)
         if (this.hlsFirstPushOkTime === 0) {
           this.hlsFirstPushOkTime = Date.now()
           this.scheduleHlsReadyAfterPush()
@@ -657,8 +438,6 @@ class PipManager {
       }
     }).catch((err) => {
       this.hlsPushCount++
-      this.hlsPushStatus = `err:${err?.message ?? err}#${this.hlsPushCount}`
-      this.plog(`hls/push err ${err?.message ?? err}`)
       if (this.hlsFirstPushOkTime === 0) {
         this.hlsFirstPushOkTime = Date.now()
         this.scheduleHlsReadyAfterPush()
@@ -675,7 +454,6 @@ class PipManager {
     const hlsUrl = this.hlsUrl
     if (!hlsUrl) return
 
-    this.plog(`preloading HLS: ${hlsUrl.slice(-40)}`)
 
     this.hlsVideo = document.createElement('video')
     this.hlsVideo.muted = true
@@ -693,7 +471,6 @@ class PipManager {
     this.hlsVideo.style.cssText = 'position:fixed;bottom:0;right:0;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-1;'
     document.body.appendChild(this.hlsVideo)
 
-    this.attachHlsDebugListeners(this.hlsVideo)
     this.attachHlsPipExitListeners(this.hlsVideo)
 
     this.hlsLoadWithRetry(hlsUrl)
@@ -709,7 +486,6 @@ class PipManager {
         this.hlsReadyDelayId = setTimeout(() => {
           this.hlsReadyDelayId = null
           if (!this.hlsReady && this.hlsVideoCanPlay && this.hlsUrl) {
-            this.plog('HLS ready (fallback — no push response yet)')
             this.setHlsReady(true)
           }
         }, 8000) // fallback longer than MIN_WAIT
@@ -725,15 +501,12 @@ class PipManager {
     const elapsed = Date.now() - this.hlsFirstPushOkTime
     const MIN_WAIT = 5000 // 5s — with hls_list_size=4 × 1s segments (4s window), need real data in all segments
     if (elapsed >= MIN_WAIT) {
-      this.plog(`HLS ready ✓ (push ${elapsed}ms ago, video canplay)`)
       this.setHlsReady(true)
     } else {
       const wait = MIN_WAIT - elapsed
-      this.plog(`HLS video canplay but push only ${elapsed}ms ago — waiting ${wait}ms for fresh segments`)
       this.hlsReadyDelayId = setTimeout(() => {
         this.hlsReadyDelayId = null
         if (!this.hlsReady && this.hlsVideoCanPlay && this.hlsUrl) {
-          this.plog(`HLS ready ✓ (post-push delay done)`)
           this.setHlsReady(true)
         }
       }, wait)
@@ -741,40 +514,6 @@ class PipManager {
   }
 
   // Debug event listeners — แยกเป็น method เพื่อ reuse
-  private attachHlsDebugListeners(v: HTMLVideoElement): void {
-    v.addEventListener('loadstart',      () => this.plog('ev:loadstart'))
-    v.addEventListener('durationchange', () => this.plog(`ev:durationchange dur=${v.duration}`))
-    v.addEventListener('loadedmetadata', () => this.plog(`ev:loadedmetadata rs=${v.readyState}`))
-    v.addEventListener('loadeddata',     () => this.plog(`ev:loadeddata rs=${v.readyState} buf=${this.fmtBuf(v)}`))
-    v.addEventListener('canplay',        () => this.plog(`ev:canplay rs=${v.readyState} buf=${this.fmtBuf(v)}`))
-    v.addEventListener('canplaythrough', () => this.plog(`ev:canplaythrough rs=${v.readyState}`))
-    v.addEventListener('playing',        () => this.plog(`ev:playing t=${v.currentTime.toFixed(2)}`))
-    v.addEventListener('waiting',        () => this.plog(`ev:waiting t=${v.currentTime.toFixed(2)} rs=${v.readyState}`))
-    v.addEventListener('stalled',        () => this.plog(`ev:stalled t=${v.currentTime.toFixed(2)} net=${v.networkState}`))
-    v.addEventListener('suspend',        () => this.plog(`ev:suspend t=${v.currentTime.toFixed(2)} rs=${v.readyState}`))
-    v.addEventListener('abort',          () => this.plog('ev:abort'))
-    v.addEventListener('emptied',        () => this.plog('ev:emptied'))
-    v.addEventListener('ended',          () => this.plog('ev:ended'))
-    v.addEventListener('error',          () => {
-      const e = (v as any).error
-      this.plog(`ev:error code=${e?.code} msg=${e?.message}`)
-    })
-    let lastLoggedTime = -1
-    v.addEventListener('timeupdate', () => {
-      this.dbgTimeupdateCount++
-      this.dbgLastTimeupdateT = v.currentTime
-      if (Math.abs(v.currentTime - lastLoggedTime) >= 1) {
-        lastLoggedTime = v.currentTime
-        this.plog(`ev:timeupdate t=${v.currentTime.toFixed(1)}s rs=${v.readyState}`)
-      }
-    })
-  }
-
-  private fmtBuf(v: HTMLVideoElement): string {
-    if (v.buffered.length === 0) return '-'
-    return `${v.buffered.start(0).toFixed(1)}-${v.buffered.end(v.buffered.length - 1).toFixed(1)}s`
-  }
-
   // PiP exit listeners — เก็บ video ไว้สำหรับ re-entry ทันที ไม่ทำลาย
   private attachHlsPipExitListeners(v: HTMLVideoElement): void {
     const onPipExit = () => {
@@ -789,7 +528,6 @@ class PipManager {
 
       // Re-preload เสมอเมื่อออก PiP — ให้ได้ segment ใหม่สำหรับ re-entry
       // ไม่เก็บ video เดิม (buffer จะ stale / iOS อาจ drop buffer หลัง pause)
-      this.plog(`PiP exited rs=${v.readyState} err=${v.error?.code ?? 'none'} → re-preloading`)
       if (this.hlsUrl) {
         this.hlsPushLastTime = 0
         const d = signalService.getData()
@@ -803,7 +541,6 @@ class PipManager {
     v.addEventListener('leavepictureinpicture', onPipExit)
     v.addEventListener('webkitpresentationmodechanged', () => {
       const mode = (v as any)?.webkitPresentationMode
-      this.plog(`ev:webkitpresentationmodechanged → ${mode}`)
       if (mode === 'inline') onPipExit()
     })
   }
@@ -822,7 +559,6 @@ class PipManager {
 
     this.hlsLoading = true
     const v = this.hlsVideo
-    this.plog(`HLS load attempt ${attempt + 1} gen=${gen}`)
 
     const isStale = () => gen !== this.hlsLoadGeneration || this.hlsUrl !== expectedUrl || this.hlsReady
 
@@ -833,7 +569,6 @@ class PipManager {
       loadedDataArrivedId = null
       if (isStale()) return
       const currentRs = v.readyState
-      this.plog(`stall-timeout 12s rs=${currentRs} buf=${this.fmtBuf(v)} → retry fresh URL`)
       cleanup()
       this.hlsLoading = false
       v.removeAttribute('src')
@@ -866,7 +601,6 @@ class PipManager {
       cleanup()
       this.hlsLoading = false
       this.hlsVideoCanPlay = true
-      this.plog(`HLS video canplay via ${event} (attempt=${attempt + 1} rs=${v.readyState} buf=${this.fmtBuf(v)})`)
       this.scheduleHlsReadyAfterPush()
     }
 
@@ -879,7 +613,6 @@ class PipManager {
       // rs=2 (HAVE_CURRENT_DATA) = มี frame แรกแล้ว → เพียงพอสำหรับ PiP entry
       // ถ้า canplay มาใน 3s ก็ใช้ canplay (ดีกว่า)
       // ถ้า 3s ผ่านแล้ว canplay ไม่มา → accept rs=2 เป็น ready
-      this.plog(`loadeddata rs=${v.readyState} buf=${this.fmtBuf(v)} — wait canplay 3s or accept rs=2`)
       // Cancel the stall-timeout since loadeddata arrived
       if (loadedDataArrivedId !== null) {
         clearTimeout(loadedDataArrivedId)
@@ -893,7 +626,6 @@ class PipManager {
           setReady(`loadeddata-accept(rs=${v.readyState})`)
         } else {
           // rs dropped below 2 → retry with fresh URL
-          this.plog(`rs dropped to ${v.readyState} → retry with fresh URL`)
           cleanup()
           this.hlsLoading = false
           v.removeAttribute('src')
@@ -914,7 +646,6 @@ class PipManager {
       if (isStale()) { this.hlsLoading = false; return }
       const code = (v as any).error?.code ?? '?'
       const delay = attempt < 8 ? 2000 : 10000
-      this.plog(`HLS error code=${code} → retry in ${delay / 1000}s (gen=${gen})`)
       v.removeAttribute('src')
       v.load()
       this.hlsRetryTimeoutId = setTimeout(() => {
@@ -990,7 +721,6 @@ class PipManager {
 
   private async startHlsPip(): Promise<boolean> {
     if (!this.hlsUrl || !this.hlsVideo) {
-      this.plog('HLS skip: no URL or video element')
       return false
     }
 
@@ -998,7 +728,6 @@ class PipManager {
 
     // Re-entry check: if video was paused and buffer is empty, re-preload
     if (this.hlsReady && v.paused && v.buffered.length === 0 && v.readyState < 2) {
-      this.plog(`re-entry: buffer empty rs=${v.readyState} → re-preload`)
       this.preloadHlsVideo()
       return false
     }
@@ -1009,10 +738,8 @@ class PipManager {
       // Fallback: ถ้า video มี rs≥2 แม้ hlsReady ไม่ได้ set (เช่น race condition)
       // ลองเข้า PiP เลย — ดีกว่าตก popup
       if (v.readyState >= 2 && !v.error) {
-        this.plog(`HLS not "ready" but rs=${v.readyState} — forcing PiP attempt`)
         this.setHlsReady(true)
       } else {
-        this.plog(`HLS not ready rs=${v.readyState} loading=${this.hlsLoading} — wait next tap`)
         if (!this.hlsLoading) {
           this.hlsLoadWithRetry(this.hlsUrl)
         }
@@ -1021,27 +748,21 @@ class PipManager {
     }
 
     try {
-      this.plog(`startHlsPip rs=${v.readyState} buf=${this.fmtBuf(v)}`)
       this.setupViewOnlyMediaSession()
 
       if ((v as any).webkitSupportsPresentationMode) {
         // Enter PiP first with preloaded src (gesture window)
-        this.plog('play()...')
         this.playPending = true
         const playPromise = v.play()
 
-        this.plog('webkitSetPresentationMode pip')
         ;(v as any).webkitSetPresentationMode('picture-in-picture')
 
         playPromise.then(() => {
           this.playPending = false
-          this.plog('play() resolved')
         }).catch((err: any) => {
           this.playPending = false
           if (err?.name === 'AbortError') {
-            this.plog('play() AbortError (expected at PiP entry)')
           } else {
-            this.plog(`play() rejected: ${err?.name}`)
           }
         })
 
@@ -1054,27 +775,17 @@ class PipManager {
           if (!this.isActive || v !== this.hlsVideo || !this.hlsUrl) return
           const sep = this.hlsUrl.includes('?') ? '&' : '?'
           const freshUrl = `${this.hlsUrl}${sep}_live=${Date.now()}`
-          this.plog(`src-swap to live edge: ${freshUrl.slice(-40)}`)
-          this.dbgSrcSwapState = 'swapped'
-          this.dbgSrcSwapTime = Date.now()
-          this.dbgTimeupdateCount = 0
 
           // Listen for new src to become playable, then resume
           const onReady = () => {
             v.removeEventListener('canplay', onReady)
             v.removeEventListener('loadeddata', onReadyFallback)
             if (!this.isActive || v !== this.hlsVideo) return
-            this.dbgSrcSwapState = 'canplay'
-            this.plog(`src-swap loaded rs=${v.readyState} buf=${this.fmtBuf(v)} → play()`)
             this.playPending = true
             v.play().then(() => {
               this.playPending = false
-              this.dbgSrcSwapState = 'playing'
-              this.plog(`src-swap playing t=${v.currentTime.toFixed(1)}s paused=${v.paused} ✓`)
             }).catch((err: any) => {
               this.playPending = false
-              this.dbgSrcSwapState = `failed:${err?.name}`
-              this.plog(`src-swap play err: ${err?.name ?? err}`)
             })
           }
           const onReadyFallback = () => {
@@ -1094,14 +805,12 @@ class PipManager {
             v.removeEventListener('loadeddata', onReadyFallback)
             if (!this.isActive || v !== this.hlsVideo) return
             if (v.paused) {
-              this.plog(`src-swap timeout 5s rs=${v.readyState} → force play`)
               this.playPending = true
               v.play().catch(() => {}).finally(() => { this.playPending = false })
             }
           }, 5000)
         }, 500)
       } else if ('requestPictureInPicture' in v) {
-        this.plog('play()...')
         this.playPending = true
         await v.play().finally(() => { this.playPending = false })
         await (v as any).requestPictureInPicture()
@@ -1112,7 +821,6 @@ class PipManager {
       this.pipMode = 'hls'
       this.isActive = true
       this.notifyStateListeners(true)
-      this.plog('PiP active ✓')
 
       // เรียกอีกรอบหลัง PiP เริ่ม — เผื่อ browser reset handlers
       this.setupViewOnlyMediaSession()
@@ -1130,10 +838,9 @@ class PipManager {
 
         // Resume if paused by system
         if (v.paused && !this.playPending) {
-          this.plog('keepalive: resume paused')
           this.playPending = true
           v.play().catch((e) => {
-            if (e?.name !== 'AbortError') this.plog(`keepalive play fail: ${e?.name}`)
+            // silently ignore play errors
           }).finally(() => { this.playPending = false })
           stuckTicks = 0
           lastCurrentTime = -1
@@ -1147,7 +854,6 @@ class PipManager {
 
           if (stuckTicks === 3 || stuckTicks === 8) {
             // 6s or 16s stall — src-swap + wait for canplay + play
-            this.plog(`stall ${stuckTicks * 2}s t=${v.currentTime.toFixed(1)}s → src-swap`)
             if (this.hlsUrl) {
               const sep = this.hlsUrl.includes('?') ? '&' : '?'
               v.src = `${this.hlsUrl}${sep}_live=${Date.now()}`
@@ -1164,7 +870,6 @@ class PipManager {
 
           } else if (stuckTicks === 15) {
             // 30s stall — exit PiP + re-preload
-            this.plog(`stall 30s → auto-exit PiP, re-preload`)
             stuckTicks = 0
             this.stopMediaSessionKeepalive()
             try { ;(v as any).webkitSetPresentationMode?.('inline') } catch {}
@@ -1177,7 +882,7 @@ class PipManager {
             return
           }
         } else {
-          if (stuckTicks > 0) this.plog(`stall cleared t=${v.currentTime.toFixed(1)}s`)
+          // stall cleared
           stuckTicks = 0
         }
         lastCurrentTime = v.currentTime
@@ -1186,7 +891,6 @@ class PipManager {
       return true
 
     } catch (err: any) {
-      this.plog(`startHlsPip err: ${err?.message ?? err}`)
       // Only abandon if PiP was never set
       if (!this.isActive) {
         try { this.hlsVideo?.pause() } catch {}
@@ -1974,24 +1678,6 @@ class PipManager {
 
     if (this.overlayContainer && this.overlayContainer.parentNode) {
       this.overlayContainer.parentNode.removeChild(this.overlayContainer)
-    }
-
-    // Cleanup debug overlay
-    if (this.debugRefreshId) {
-      clearInterval(this.debugRefreshId)
-      this.debugRefreshId = null
-    }
-    if (this.hlsDebugFetchId) {
-      clearInterval(this.hlsDebugFetchId)
-      this.hlsDebugFetchId = null
-    }
-    if (this.dbgM3u8FetchId) {
-      clearInterval(this.dbgM3u8FetchId)
-      this.dbgM3u8FetchId = null
-    }
-    if (this.debugOverlay && this.debugOverlay.parentNode) {
-      this.debugOverlay.parentNode.removeChild(this.debugOverlay)
-      this.debugOverlay = null
     }
 
     this.canvas = null

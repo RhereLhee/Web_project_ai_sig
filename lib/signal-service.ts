@@ -99,11 +99,9 @@ class SignalService {
     if (this.ws?.readyState === WebSocket.OPEN) return
 
     try {
-      console.log(`Connecting to WebSocket: ${this.wsUrl}`)
       this.ws = new WebSocket(this.wsUrl)
 
       this.ws.onopen = () => {
-        console.log('WebSocket connected')
         this.connected = true
         this.reconnectAttempts = 0
         this.usePolling = false
@@ -189,7 +187,6 @@ class SignalService {
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.log('Max reconnect attempts reached, falling back to polling')
       this.startPollingFallback()
       return
     }
@@ -213,7 +210,6 @@ class SignalService {
     if (this.pollingInterval) return
     
     this.usePolling = true
-    console.log('Starting HTTP polling fallback')
     
     // Initial fetch
     this.fetchData()
