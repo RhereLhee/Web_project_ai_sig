@@ -28,7 +28,6 @@ export async function POST(
         id: true,
         orderNumber: true,
         status: true,
-        isFirstPayment: true,
         userId: true,
         affiliatePayment: { select: { id: true } },
       },
@@ -39,9 +38,6 @@ export async function POST(
     }
     if (order.status !== 'PAID') {
       return NextResponse.json({ error: 'ออเดอร์ยังไม่ได้รับการอนุมัติ' }, { status: 400 })
-    }
-    if (!order.isFirstPayment) {
-      return NextResponse.json({ error: 'ออเดอร์นี้ไม่ใช่การสั่งซื้อครั้งแรก (ไม่มี commission)' }, { status: 400 })
     }
     if (order.affiliatePayment) {
       return NextResponse.json({ error: 'แจก commission ไปแล้ว', alreadyDistributed: true }, { status: 400 })

@@ -1,0 +1,65 @@
+name: Database Backup
+
+on:
+  schedule:
+    # ทุกวัน 03:00 UTC (10:00 เวลาไทย) — ช่วงคนใช้น้อย
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    # กดรัน manual ได้ตลอด
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout backup branch
+        uses: actions/checkout@v4
+        with:
+          ref: db-backups
+          fetch-depth: 1
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16 2>/dev/null || \
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Run pg_dump
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
+          FILENAME="backup_${TIMESTAMP}.sql.gz"
+
+          # pg_dump → gzip (ลดขนาด 5-10x)
+          pg_dump "$DATABASE_URL" \
+            --no-owner \
+            --no-privileges \
+            --clean \
+            --if-exists \
+            --format=plain \
+            | gzip > "$FILENAME"
+
+          FILE_SIZE=$(du -h "$FILENAME" | cut -f1)
+          echo "FILENAME=$FILENAME" >> $GITHUB_ENV
+          echo "FILE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
+          echo "Backup created: $FILENAME ($FILE_SIZE)"
+
+      - name: Clean old backups (keep last 30)
+        run: |
+          # เก็บ backup ล่าสุด 30 ไฟล์ ลบเก่ากว่า
+          ls -t backup_*.sql.gz 2>/dev/null | tail -n +31 | xargs -r rm -f
+          echo "Remaining backups: $(ls backup_*.sql.gz 2>/dev/null | wc -l)"
+
+      - name: Commit and push
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add backup_*.sql.gz
+          git status
+          git commit -m "backup: ${FILENAME} (${FILE_SIZE})" || echo "No changes to commit"
+          git push

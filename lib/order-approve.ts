@@ -103,7 +103,7 @@ export async function activateOrder(orderId: string): Promise<ApproveResult> {
   if (!alreadyPaid && activated.kind === 'activated') {
     try {
       const affiliateOn = await isAffiliateEnabled()
-      if (affiliateOn && activated.isFirstPayment) {
+      if (affiliateOn) {
         await distributeCommission(orderId, activated.userId)
       }
     } catch (e) {

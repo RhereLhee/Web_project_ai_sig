@@ -1,5 +1,5 @@
 // lib/affiliate.ts
-// Banking-grade affiliate commission engine.
+// Banking-grade affiliate commission engine — recurring model with monthly cap.
 //
 // Model:
 //   Pool        = floor(order.finalAmount × affiliate_pool_percent / 100)
@@ -7,11 +7,16 @@
 //   payment(n)  = floor(Pool × weight(n) / Σweights)
 //   dust        = Pool - Σpayments       → credited to company (not to any upline)
 //
+// Monthly Cap with Overflow:
+//   Each upline is capped at MONTHLY_COMMISSION_CAP_SATANG per calendar month.
+//   When an upline hits the cap, their excess share redistributes proportionally
+//   to other uplines in the chain who haven't reached their cap.
+//   If ALL uplines are capped, overflow becomes dust (company keeps it).
+//
 // Rules enforced:
 //   1. Atomicity: entire distribution is inside a single DB transaction.
 //   2. Idempotency: AffiliatePayment.orderId is UNIQUE — retries are safe.
-//   3. First-payment-only: (buyerId, uplineId) pair gets commission exactly once
-//      (enforced by UNIQUE index — any duplicate simply skipped).
+//   3. Recurring: commission on EVERY purchase (no first-payment-only guard).
 //   4. Every commission creates a matching LedgerEntry (COMMISSION_CREDIT).
 //   5. Commissions are immutable (amount never updated — use split/reverse instead).
 //
@@ -25,9 +30,11 @@ import {
   AFFILIATE_DECAY_RATE,
   MAX_UPLINE_LEVELS,
   MIN_COMMISSION_SATANG,
+  MONTHLY_COMMISSION_CAP_SATANG,
   computePoolSatang,
 } from './money'
 import { getAffiliatePoolPercent } from './system-settings'
+import { sendCommissionCapEmail } from './email'
 import { logger } from './logger'
 
 // ============================================
@@ -45,6 +52,8 @@ interface CommissionResult {
   weight: number
   normalizedWeight: number
   amount: number // satang
+  wasCapped: boolean
+  rawAmount: number // satang — amount before cap was applied
 }
 
 export interface DistributeResult {
@@ -87,36 +96,119 @@ export async function getUplineChain(
 }
 
 // ============================================
-// PURE: calculate payments from pool + uplines
+// MONTHLY EARNINGS QUERY
+// ============================================
+
+async function getMonthlyEarnings(
+  userIds: string[],
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<Map<string, number>> {
+  if (userIds.length === 0) return new Map()
+
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+
+  const rows = await client.ledgerEntry.groupBy({
+    by: ['userId'],
+    where: {
+      userId: { in: userIds },
+      type: 'COMMISSION_CREDIT',
+      createdAt: { gte: monthStart },
+    },
+    _sum: { amount: true },
+  })
+
+  const map = new Map<string, number>()
+  for (const row of rows) {
+    map.set(row.userId, row._sum.amount ?? 0)
+  }
+  return map
+}
+
+// ============================================
+// PURE: calculate payments with monthly cap + overflow
 // ============================================
 
 export function calculateCommissions(
   uplines: UplineUser[],
   poolSatang: number,
+  monthlyEarnings?: Map<string, number>,
 ): { commissions: CommissionResult[]; totalPaid: number; dust: number } {
   if (uplines.length === 0 || poolSatang <= 0) {
     return { commissions: [], totalPaid: 0, dust: poolSatang > 0 ? poolSatang : 0 }
   }
 
+  const earnings = monthlyEarnings ?? new Map<string, number>()
+
+  // Phase 1: compute raw weighted amounts
   const weights = uplines.map((u) => ({
     ...u,
     weight: Math.pow(AFFILIATE_DECAY_RATE, u.level - 1),
   }))
   const totalWeight = weights.reduce((s, w) => s + w.weight, 0)
 
-  const commissions: CommissionResult[] = weights.map((w) => {
-    const amount = Math.floor((poolSatang * w.weight) / totalWeight)
-    return {
-      userId: w.id,
-      level: w.level,
-      weight: w.weight,
-      normalizedWeight: w.weight / totalWeight,
-      amount,
-    }
-  })
+  const rawAmounts = weights.map((w) => ({
+    ...w,
+    rawAmount: Math.floor((poolSatang * w.weight) / totalWeight),
+    normalizedWeight: w.weight / totalWeight,
+  }))
 
-  // Drop commissions below MIN_COMMISSION_SATANG; their share becomes dust.
-  const kept = commissions.filter((c) => c.amount >= MIN_COMMISSION_SATANG)
+  // Phase 2: apply monthly cap with overflow redistribution
+  // Iterative: capped uplines' excess gets redistributed to uncapped ones.
+  // Repeat until no overflow remains or all uplines are capped.
+  let remaining = rawAmounts.map((r) => ({
+    ...r,
+    amount: r.rawAmount,
+    capped: false,
+  }))
+
+  for (let iteration = 0; iteration < uplines.length; iteration++) {
+    let overflow = 0
+    let uncappedWeight = 0
+
+    for (const entry of remaining) {
+      if (entry.capped) continue
+      const currentMonthly = earnings.get(entry.id) ?? 0
+      const headroom = Math.max(0, MONTHLY_COMMISSION_CAP_SATANG - currentMonthly)
+
+      if (entry.amount > headroom) {
+        overflow += entry.amount - headroom
+        entry.amount = headroom
+        entry.capped = true
+      } else {
+        uncappedWeight += entry.weight
+      }
+    }
+
+    if (overflow === 0 || uncappedWeight === 0) break
+
+    // Redistribute overflow proportionally among uncapped uplines
+    let distributed = 0
+    const uncapped = remaining.filter((e) => !e.capped)
+    for (let i = 0; i < uncapped.length; i++) {
+      const entry = uncapped[i]
+      const share =
+        i === uncapped.length - 1
+          ? overflow - distributed // last one gets remainder to avoid rounding loss
+          : Math.floor((overflow * entry.weight) / uncappedWeight)
+      entry.amount += share
+      distributed += share
+    }
+  }
+
+  // Phase 3: drop below minimum, compute totals
+  const kept = remaining
+    .filter((c) => c.amount >= MIN_COMMISSION_SATANG)
+    .map((c) => ({
+      userId: c.id,
+      level: c.level,
+      weight: c.weight,
+      normalizedWeight: c.normalizedWeight,
+      amount: c.amount,
+      wasCapped: c.capped,
+      rawAmount: c.rawAmount,
+    }))
+
   const totalPaid = kept.reduce((s, c) => s + c.amount, 0)
   const dust = poolSatang - totalPaid
 
@@ -137,7 +229,6 @@ export async function distributeCommission(
     select: {
       id: true,
       finalAmount: true,
-      isFirstPayment: true,
       userId: true,
       affiliatePayment: { select: { id: true } },
     },
@@ -163,28 +254,12 @@ export async function distributeCommission(
       commissions: [],
     }
   }
-  // First-payment-only guard (for recurring VIP subscriptions)
-  if (!order.isFirstPayment) {
-    logger.info(`[Affiliate] Order ${orderId} is not first payment — skipping`, {
-      context: 'affiliate',
-    })
-    return {
-      success: true,
-      alreadyDistributed: false,
-      distributed: 0,
-      totalPool: 0,
-      totalPaid: 0,
-      dust: 0,
-      commissions: [],
-    }
-  }
 
   // Read % from system settings (per-call, not cached here — settings lib caches 60s)
   const percent = await getAffiliatePoolPercent()
   const poolSatang = computePoolSatang(order.finalAmount, percent)
 
   if (poolSatang <= 0) {
-    // Affiliate disabled or 0% — still mark as processed to avoid re-runs.
     return {
       success: true,
       alreadyDistributed: false,
@@ -200,11 +275,9 @@ export async function distributeCommission(
   const uplines = (await getUplineChain(buyerId))
     .filter((u) => u.id !== buyerId) // prevent self-commission
   if (uplines.length === 0) {
-    // No uplines — entire pool is dust (company keeps it).
     logger.info(`[Affiliate] No upline for ${buyerId} — pool=${poolSatang} becomes dust`, {
       context: 'affiliate',
     })
-    // Still record AffiliatePayment so idempotency kicks in on retry.
     try {
       await prisma.affiliatePayment.create({
         data: {
@@ -219,7 +292,6 @@ export async function distributeCommission(
         },
       })
     } catch (e) {
-      // Unique violation on orderId — already exists, fine.
       if (!isUniqueViolation(e)) throw e
     }
     return {
@@ -233,10 +305,13 @@ export async function distributeCommission(
     }
   }
 
-  const { commissions, totalPaid, dust } = calculateCommissions(uplines, poolSatang)
+  // 3. Fetch monthly earnings for cap enforcement
+  const monthlyEarnings = await getMonthlyEarnings(uplines.map((u) => u.id))
+
+  const { commissions, totalPaid, dust } = calculateCommissions(uplines, poolSatang, monthlyEarnings)
   const totalWeight = commissions.reduce((s, c) => s + c.weight, 0)
 
-  // 3. Atomic write
+  // 4. Atomic write
   try {
     await prisma.$transaction(
       async (tx) => {
@@ -254,8 +329,6 @@ export async function distributeCommission(
         })
 
         for (const c of commissions) {
-          // First-payment rule: skip if (buyerId, userId) already exists.
-          // The unique index guards us even under race conditions.
           try {
             const commission = await tx.commission.create({
               data: {
@@ -270,7 +343,6 @@ export async function distributeCommission(
                 status: 'AVAILABLE',
               },
             })
-            // Credit the ledger (immutable)
             await postLedger(tx, {
               userId: c.userId,
               amount: c.amount,
@@ -281,9 +353,9 @@ export async function distributeCommission(
             })
           } catch (e) {
             if (isUniqueViolation(e)) {
-              // (buyerId, userId) already has a commission — skip.
+              // (affiliatePaymentId, userId) already has a commission — skip.
               logger.info(
-                `[Affiliate] Skip duplicate pair buyer=${buyerId} upline=${c.userId}`,
+                `[Affiliate] Skip duplicate commission for order payment=${payment.id} upline=${c.userId}`,
                 { context: 'affiliate' },
               )
               continue
@@ -296,7 +368,6 @@ export async function distributeCommission(
     )
   } catch (e) {
     if (isUniqueViolation(e)) {
-      // AffiliatePayment.orderId collision — another request won. Treat as idempotent success.
       return {
         success: true,
         alreadyDistributed: true,
@@ -319,6 +390,9 @@ export async function distributeCommission(
     { context: 'affiliate' },
   )
 
+  // 5. Fire-and-forget cap notifications (outside transaction — non-critical)
+  notifyCapReached(commissions, monthlyEarnings).catch(() => {})
+
   return {
     success: true,
     alreadyDistributed: false,
@@ -328,6 +402,55 @@ export async function distributeCommission(
     dust,
     commissions,
   }
+}
+
+// ============================================
+// CAP NOTIFICATIONS (fire-and-forget)
+// ============================================
+
+const CAP_NOTIFY_THRESHOLD = 0.8 // notify at 80%+
+
+async function notifyCapReached(
+  commissions: CommissionResult[],
+  monthlyEarningsBefore: Map<string, number>,
+): Promise<void> {
+  const candidateIds = commissions
+    .filter((c) => {
+      const before = monthlyEarningsBefore.get(c.userId) ?? 0
+      const after = before + c.amount
+      const ratio = after / MONTHLY_COMMISSION_CAP_SATANG
+      return ratio >= CAP_NOTIFY_THRESHOLD || c.wasCapped
+    })
+    .map((c) => c.userId)
+
+  if (candidateIds.length === 0) return
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: candidateIds } },
+    select: { id: true, email: true },
+  })
+  const emailMap = new Map(users.map((u) => [u.id, u.email]))
+
+  await Promise.allSettled(
+    commissions
+      .filter((c) => emailMap.has(c.userId))
+      .map((c) => {
+        const email = emailMap.get(c.userId)
+        if (!email) return Promise.resolve()
+        const before = monthlyEarningsBefore.get(c.userId) ?? 0
+        const after = before + c.amount
+        const ratio = after / MONTHLY_COMMISSION_CAP_SATANG
+        if (ratio < CAP_NOTIFY_THRESHOLD && !c.wasCapped) return Promise.resolve()
+
+        return sendCommissionCapEmail(email, {
+          monthlyEarned: after,
+          monthlyCap: MONTHLY_COMMISSION_CAP_SATANG,
+          commissionAmount: c.amount,
+          wasCapped: c.wasCapped,
+          originalAmount: c.wasCapped ? c.rawAmount : undefined,
+        })
+      }),
+  )
 }
 
 // ============================================

@@ -16,6 +16,11 @@ export const AFFILIATE_DECAY_RATE = 0.8
 /** Safety cap on upline chain depth (prevents infinite loops from corrupted referral graph). */
 export const MAX_UPLINE_LEVELS = 100
 
+/** Monthly commission cap per upline: ฿50,000 = 5,000,000 satang.
+ *  When an upline hits this cap in a calendar month, their share overflows
+ *  to the next uplines in the chain who haven't reached their cap. */
+export const MONTHLY_COMMISSION_CAP_SATANG = 5_000_000
+
 /** Unique-amount suffix range: 1..99 satang appended to expected payment amount
  *  to disambiguate simultaneous transfers of the same price. */
 export const AMOUNT_SUFFIX_MIN = 1

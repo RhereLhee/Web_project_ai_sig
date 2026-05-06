@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/lib/jwt"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { getMinWithdrawSatang } from "@/lib/system-settings"
+import { MONTHLY_COMMISSION_CAP_SATANG } from "@/lib/money"
 import { CopyButton } from "./CopyButton"
 import { WithdrawButton } from "./WithdrawButton"
 import { BankInfoForm } from "./BankInfoForm"
@@ -28,7 +29,10 @@ async function getPartnerWithUser(userId: string) {
 }
 
 async function getAffiliateStats(userId: string) {
-  const [teamCount, recentCommissions] = await Promise.all([
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+
+  const [teamCount, recentCommissions, monthlyAgg] = await Promise.all([
     prisma.user.count({ where: { referredById: userId } }),
     prisma.commission.findMany({
       where: { userId },
@@ -44,17 +48,22 @@ async function getAffiliateStats(userId: string) {
       orderBy: { createdAt: 'desc' },
       take: 5,
     }),
+    prisma.ledgerEntry.aggregate({
+      where: { userId, type: 'COMMISSION_CREDIT', createdAt: { gte: monthStart } },
+      _sum: { amount: true },
+    }),
   ])
 
-  // Balance derived from ledger (source of truth).
   const { getUserAffiliateBalance, getUserLifetimeEarnings } = await import('@/lib/affiliate')
   const pendingBalance = await getUserAffiliateBalance(userId)
   const totalEarned = await getUserLifetimeEarnings(userId)
+  const monthlyEarned = monthlyAgg._sum.amount ?? 0
 
   return {
     team: teamCount,
     pendingBalance,
     totalEarned,
+    monthlyEarned,
     recentCommissions,
   }
 }
@@ -106,6 +115,59 @@ function WithdrawalStatusBadge({ status }: { status: string }) {
 }
 
 // ============================================
+// Monthly Cap Card
+// ============================================
+
+function MonthlyCapCard({ monthlyEarned }: { monthlyEarned: number }) {
+  const capBaht = MONTHLY_COMMISSION_CAP_SATANG / 100
+  const earnedBaht = monthlyEarned / 100
+  const percent = Math.min(100, Math.round((monthlyEarned / MONTHLY_COMMISSION_CAP_SATANG) * 100))
+  const remainingBaht = Math.max(0, capBaht - earnedBaht)
+  const isFull = monthlyEarned >= MONTHLY_COMMISSION_CAP_SATANG
+  const isWarning = percent >= 80 && !isFull
+
+  const barColor = isFull ? 'bg-red-500' : isWarning ? 'bg-amber-500' : 'bg-emerald-500'
+  const now = new Date()
+  const monthName = now.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-5">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <p className="text-sm text-gray-500">เพดาน Commission เดือนนี้</p>
+          <p className="text-xs text-gray-400">{monthName}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-sm font-semibold text-gray-900">
+            ฿{earnedBaht.toLocaleString()} / ฿{capBaht.toLocaleString()}
+          </p>
+          <p className="text-xs text-gray-400">เหลือ ฿{remainingBaht.toLocaleString()}</p>
+        </div>
+      </div>
+      <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${barColor}`}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+      <div className="flex justify-between mt-1">
+        <span className="text-xs text-gray-400">{percent}%</span>
+        {isFull && (
+          <span className="text-xs font-medium text-red-600">
+            ถึงเพดานแล้ว — Commission ส่วนเกินจะกระจายให้ upline อื่นในสาย
+          </span>
+        )}
+        {isWarning && (
+          <span className="text-xs font-medium text-amber-600">
+            ใกล้ถึงเพดาน
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ============================================
 // Main Page
 // ============================================
 
@@ -140,7 +202,8 @@ export default async function PartnerPage() {
         <div className="bg-gray-50 rounded-xl border border-gray-200 p-5">
           <h2 className="font-semibold text-gray-900 mb-3">เงื่อนไข Partner Reward</h2>
           <div className="text-sm text-gray-600 space-y-2">
-            <p>• ผลตอบแทนคำนวณจากการใช้งานจริงของผู้ใช้บริการที่ถูกแนะนำ</p>
+            <p>• ผลตอบแทนคำนวณจากทุกการซื้อของผู้ใช้บริการที่ถูกแนะนำ (ไม่จำกัดครั้ง)</p>
+            <p>• เพดาน Commission: ฿{(MONTHLY_COMMISSION_CAP_SATANG / 100).toLocaleString()} ต่อเดือน (รีเซ็ตทุกวันที่ 1)</p>
             <p>• ระบบไม่มีการรับประกันหรือการันตีรายได้ใดๆ</p>
             <p>• ยอดคงเหลือไม่มีวันหมดอายุและจะไม่ถูกยึด</p>
             <p>• 1 เบอร์โทร = 1 บัญชี (ล็อคอัตโนมัติเมื่อถอนเงินครั้งแรก)</p>
@@ -233,6 +296,9 @@ export default async function PartnerPage() {
           />
         </div>
       </div>
+
+      {/* Monthly Cap */}
+      <MonthlyCapCard monthlyEarned={stats.monthlyEarned} />
 
       {/* Row 2: Bank + Team + Earnings */}
       <div className="grid lg:grid-cols-3 gap-4">
@@ -350,7 +416,9 @@ export default async function PartnerPage() {
       <div className="bg-gray-50 rounded-xl border border-gray-200 p-5">
         <h2 className="font-semibold text-gray-900 mb-3">ข้อมูลสำคัญ</h2>
         <div className="text-sm text-gray-600 space-y-2">
-          <p>• ผลตอบแทนคำนวณจากการใช้งานจริงของผู้ใช้บริการที่ถูกแนะนำ</p>
+          <p>• ผลตอบแทนคำนวณจากทุกการซื้อของผู้ใช้บริการที่ถูกแนะนำ (ไม่จำกัดครั้ง)</p>
+          <p>• เพดาน Commission: ฿{(MONTHLY_COMMISSION_CAP_SATANG / 100).toLocaleString()} ต่อเดือน (รีเซ็ตทุกวันที่ 1)</p>
+          <p>• หากถึงเพดาน ส่วนเกินจะกระจายให้ upline อื่นในสายแนะนำที่ยังไม่เต็ม</p>
           <p>• ยอดคงเหลือไม่มีวันหมดอายุและจะไม่ถูกยึด</p>
           <p>• ถอนขั้นต่ำ ฿{minWithdrawBaht.toLocaleString()} ดำเนินการภายใน 1-3 วันทำการ</p>
           <p>• 1 เบอร์โทร = 1 บัญชี (ล็อคอัตโนมัติเมื่อถอนเงินครั้งแรก)</p>

@@ -2,7 +2,6 @@
 import { getUserWithSubscription } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import Link from "next/link"
-import { getYouTubeEmbedUrl } from "@/lib/config"
 import { TelegramFeed } from "@/components/TelegramFeed"
 import { ForwardTestStats } from "./ForwardTestStats"
 import { TopAffiliates } from "./TopAffiliates"
@@ -13,44 +12,33 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      {/* Hero Card with YouTube */}
-      <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-        <div className="grid md:grid-cols-2 gap-8 items-center">
-          {/* Left - Text */}
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-3">
-              ยินดีต้อนรับกลับมา
-            </h1>
-            <p className="text-gray-600 mb-4 leading-relaxed">
-              เริ่มต้นการเทรดของคุณวันนี้ด้วยสัญญาณ AI ที่ผ่านการทดสอบจากตลาดจริง 
-              ติดตามสถิติและผลตอบแทนแบบ Real-time
-            </p>
-            <Link 
-              href="/signals" 
-              className="inline-flex items-center px-5 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition"
-            >
-              <span>ดู Signal</span>
-              <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </Link>
-          </div>
-
-          {/* Right - YouTube Video */}
-          <div className="relative rounded-lg overflow-hidden bg-gray-100">
-            <div className="aspect-video">
-              <iframe
-                width="100%"
-                height="100%"
-                src={getYouTubeEmbedUrl('dashboardVideo')}
-                title="TechTrade Tutorial"
-                frameBorder="0"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                className="w-full h-full"
-              ></iframe>
-            </div>
-          </div>
+      {/* Hero */}
+      <div className="bg-gray-900 rounded-xl px-8 py-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
+        <div>
+          <p className="text-gray-400 text-sm mb-1">ยินดีต้อนรับกลับมา</p>
+          <h1 className="text-2xl font-bold text-white mb-2">
+            {user.name || user.email}
+          </h1>
+          <p className="text-gray-400 text-sm leading-relaxed max-w-md">
+            สัญญาณ AI ที่ผ่านการทดสอบจากตลาดจริง — ติดตามผลและเทรดได้เลย
+          </p>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <Link
+            href="/signals"
+            className="inline-flex items-center px-5 py-2.5 bg-white text-gray-900 text-sm font-semibold rounded-lg hover:bg-gray-100 transition"
+          >
+            ดู Signal
+            <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
+          <Link
+            href="/partner"
+            className="inline-flex items-center px-5 py-2.5 bg-gray-700 text-white text-sm font-medium rounded-lg hover:bg-gray-600 transition"
+          >
+            Partner
+          </Link>
         </div>
       </div>
 

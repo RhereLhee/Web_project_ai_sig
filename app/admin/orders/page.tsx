@@ -233,12 +233,12 @@ export default async function AdminOrdersPage({ searchParams }: Props) {
                           หมดอายุ
                         </span>
                       )}
-                      {order.isFirstPayment && order.status === 'PENDING' && (
+                      {order.status === 'PENDING' && (
                         <span
                           title="จะได้ commission แจกให้ upline เมื่ออนุมัติ"
                           className="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800"
                         >
-                          ⚡ First Payment
+                          ⚡ Commission
                         </span>
                       )}
                     </div>
@@ -428,11 +428,10 @@ export default async function AdminOrdersPage({ searchParams }: Props) {
                           </span>
                         )}
                       </span>
-                      {/* Show retry button if: first payment + no commission distributed yet */}
-                      {order.isFirstPayment && !order.affiliatePayment && (
+                      {!order.affiliatePayment && (
                         <RetryCommissionButton orderId={order.id} />
                       )}
-                      {order.isFirstPayment && order.affiliatePayment && (
+                      {order.affiliatePayment && (
                         <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">
                           Commission แจกแล้ว
                         </span>

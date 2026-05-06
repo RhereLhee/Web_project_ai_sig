@@ -580,3 +580,116 @@ export async function sendSlipPendingEmail(
   `
   return sendEmail(email, `แจ้งรับสลิปชำระเงิน คำสั่งซื้อ ${data.orderNumber} - TechTrade`, html)
 }
+
+// ============================================
+// COMMISSION CAP NOTIFICATION
+// ============================================
+
+interface CommissionCapEmailData {
+  monthlyEarned: number   // satang — total earned this month AFTER this commission
+  monthlyCap: number      // satang — the cap limit
+  commissionAmount: number // satang — the commission just credited
+  wasCapped: boolean       // true if this commission was reduced due to cap
+  originalAmount?: number  // satang — what the commission would have been without cap
+}
+
+export async function sendCommissionCapEmail(
+  email: string,
+  data: CommissionCapEmailData,
+): Promise<SendEmailResult> {
+  const earnedBaht = (data.monthlyEarned / 100).toLocaleString()
+  const capBaht = (data.monthlyCap / 100).toLocaleString()
+  const commBaht = (data.commissionAmount / 100).toLocaleString()
+  const percent = Math.min(100, Math.round((data.monthlyEarned / data.monthlyCap) * 100))
+
+  const cappedSection = data.wasCapped && data.originalAmount
+    ? `
+      <div style="background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 16px; margin: 16px 0;">
+        <p style="color: #92400e; margin: 0; font-weight: bold;">Commission ถูกปรับลดเนื่องจากถึงเพดานรายเดือน</p>
+        <p style="color: #92400e; margin: 8px 0 0 0;">
+          ยอดเต็ม: ฿${(data.originalAmount / 100).toLocaleString()} &rarr; ได้รับจริง: ฿${commBaht}
+        </p>
+        <p style="color: #92400e; margin: 4px 0 0 0; font-size: 13px;">
+          ส่วนต่างถูกกระจายให้ upline ท่านอื่นในสายแนะนำ
+        </p>
+      </div>`
+    : ''
+
+  const hitCapSection = data.monthlyEarned >= data.monthlyCap
+    ? `
+      <div style="background: #fee2e2; border: 1px solid #fca5a5; border-radius: 8px; padding: 16px; margin: 16px 0;">
+        <p style="color: #991b1b; margin: 0; font-weight: bold;">ท่านถึงเพดาน Commission เดือนนี้แล้ว</p>
+        <p style="color: #991b1b; margin: 8px 0 0 0; font-size: 13px;">
+          Commission จากการแนะนำที่เหลือในเดือนนี้จะถูกกระจายให้ upline ท่านอื่นในสายแนะนำโดยอัตโนมัติ
+          เพดานจะรีเซ็ตในวันที่ 1 ของเดือนถัดไป
+        </p>
+      </div>`
+    : ''
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="padding: 30px; background: #f9fafb;">
+
+        <p style="color: #4b5563;">เรียน Partner ที่เคารพ</p>
+
+        <p style="color: #4b5563;">
+          ทางทีมงานขอแจ้งให้ทราบเกี่ยวกับสถานะเพดาน Commission รายเดือนของท่าน
+        </p>
+
+        <div style="background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;">
+          <h3 style="color: #111827; margin-top: 0;">สถานะ Commission เดือนนี้</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280;">Commission ที่เพิ่งได้รับ:</td>
+              <td style="padding: 8px 0; color: #10b981; font-weight: bold; text-align: right;">+฿${commBaht}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280;">ยอดรวมเดือนนี้:</td>
+              <td style="padding: 8px 0; color: #111827; font-weight: bold; text-align: right;">฿${earnedBaht}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; color: #6b7280;">เพดานรายเดือน:</td>
+              <td style="padding: 8px 0; color: #111827; text-align: right;">฿${capBaht}</td>
+            </tr>
+          </table>
+
+          <div style="margin-top: 16px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+              <span style="font-size: 12px; color: #6b7280;">ใช้ไป ${percent}%</span>
+            </div>
+            <div style="background: #e5e7eb; border-radius: 9999px; height: 10px; overflow: hidden;">
+              <div style="background: ${percent >= 100 ? '#ef4444' : percent >= 80 ? '#f59e0b' : '#10b981'}; width: ${percent}%; height: 100%; border-radius: 9999px;"></div>
+            </div>
+          </div>
+        </div>
+
+        ${cappedSection}
+        ${hitCapSection}
+
+        <p style="color: #4b5563;">
+          ท่านสามารถตรวจสอบรายละเอียดเพิ่มเติมได้ที่หน้า Partner Dashboard
+        </p>
+
+        <p style="color: #4b5563;">
+          ขอขอบคุณที่ร่วมเป็น Partner กับเรา
+        </p>
+
+        <p style="color: #6b7280; margin-top: 30px;">
+          ขอแสดงความนับถือ<br>
+          <strong>ทีมงาน TechTrade</strong>
+        </p>
+      </div>
+      <div style="background: #111827; padding: 20px; text-align: center;">
+        <p style="color: #6b7280; font-size: 12px; margin: 0;">
+          อีเมลนี้ถูกส่งโดยอัตโนมัติ กรุณาอย่าตอบกลับ
+        </p>
+      </div>
+    </div>
+  `
+
+  const subject = data.monthlyEarned >= data.monthlyCap
+    ? 'แจ้งเตือน: ท่านถึงเพดาน Commission รายเดือนแล้ว - TechTrade'
+    : 'แจ้งเตือน: ยอด Commission เดือนนี้ใกล้ถึงเพดาน - TechTrade'
+
+  return sendEmail(email, subject, html)
+}

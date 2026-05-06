@@ -147,7 +147,7 @@ export async function POST(
       let affiliate = { distributed: 0, totalPool: 0, totalPaid: 0, dust: 0 }
       if (!alreadyPaid) {
         const affiliateOn = await isAffiliateEnabled()
-        if (affiliateOn && activated.isFirstPayment) {
+        if (affiliateOn) {
           try {
             const res = await distributeCommission(activated.orderId, activated.userId)
             affiliate = {

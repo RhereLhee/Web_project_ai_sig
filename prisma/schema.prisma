@@ -546,7 +546,8 @@ model Commission {
   //   (only rows with parentCommissionId IS NULL) so split children don't collide.
   //   Effective rules:
   //     UNIQUE (affiliatePaymentId, userId) WHERE parentCommissionId IS NULL
-  //     UNIQUE (buyerId, userId)             WHERE parentCommissionId IS NULL AND buyerId IS NOT NULL
+  //   The (buyerId, userId) unique was DROPPED in 20260507120000 to allow
+  //   recurring commissions on every purchase (monthly-capped).
   @@index([userId])
   @@index([status])
   @@index([level])
