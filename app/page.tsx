@@ -168,56 +168,20 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Contact Section */}
-      <section id="about" className="py-20 bg-gray-50">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-4xl font-bold text-gray-900 mb-4">ติดต่อเรา</h2>
-          <p className="text-xl text-gray-600 mb-12">มีคำถามหรือต้องการความช่วยเหลือ? ติดต่อทีมงานได้เลย</p>
-
-          <div className="grid sm:grid-cols-2 gap-6">
-            {/* Email */}
-            <a
-              href="mailto:techtrade1520@gmail.com"
-              className="group bg-white border-2 border-gray-200 rounded-2xl p-8 hover:border-emerald-400 hover:shadow-lg transition-all text-left"
-            >
-              <div className="w-14 h-14 bg-emerald-100 rounded-xl flex items-center justify-center mb-4 group-hover:bg-emerald-200 transition-colors">
-                <svg className="w-7 h-7 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <h3 className="text-lg font-bold text-gray-900 mb-1">อีเมล</h3>
-              <p className="text-emerald-600 font-medium text-sm break-all">techtrade1520@gmail.com</p>
-              <p className="text-gray-500 text-sm mt-2">ตอบกลับภายใน 24 ชั่วโมง</p>
-            </a>
-
-            {/* Telegram */}
-            <a
-              href={getSocialLink('telegram')}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group bg-white border-2 border-gray-200 rounded-2xl p-8 hover:border-blue-400 hover:shadow-lg transition-all text-left"
-            >
-              <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center mb-4 group-hover:bg-blue-200 transition-colors">
-                <svg className="w-7 h-7 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12a12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472c-.18 1.898-.962 6.502-1.36 8.627c-.168.9-.499 1.201-.82 1.23c-.696.065-1.225-.46-1.9-.902c-1.056-.693-1.653-1.124-2.678-1.8c-1.185-.78-.417-1.21.258-1.91c.177-.184 3.247-2.977 3.307-3.23c.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345c-.48.33-.913.49-1.302.48c-.428-.008-1.252-.241-1.865-.44c-.752-.245-1.349-.374-1.297-.789c.027-.216.325-.437.893-.663c3.498-1.524 5.83-2.529 6.998-3.014c3.332-1.386 4.025-1.627 4.476-1.635z"/>
-                </svg>
-              </div>
-              <h3 className="text-lg font-bold text-gray-900 mb-1">Telegram</h3>
-              <p className="text-blue-500 font-medium text-sm">@signal_techtrade</p>
-              <p className="text-gray-500 text-sm mt-2">ติดตามสัญญาณและข่าวสาร</p>
-            </a>
-          </div>
-        </div>
-      </section>
-
       {/* Footer */}
       <footer className="bg-gray-900 text-white py-6">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col sm:flex-row justify-between items-center text-sm text-gray-400">
             <p>© 2026 TechTrade. All rights reserved.</p>
-            <a href="/docs/privacy-policy.pdf" target="_blank" className="text-emerald-400 hover:text-emerald-300 transition-colors mt-2 sm:mt-0">
-              Privacy policy
-            </a>
+            <div className="flex items-center gap-4 mt-2 sm:mt-0">
+              <a href="mailto:techtrade1520@gmail.com" className="hover:text-white transition-colors">
+                techtrade1520@gmail.com
+              </a>
+              <span className="text-gray-600">·</span>
+              <a href="/docs/privacy-policy.pdf" target="_blank" className="text-emerald-400 hover:text-emerald-300 transition-colors">
+                Privacy policy
+              </a>
+            </div>
           </div>
         </div>
       </footer>
