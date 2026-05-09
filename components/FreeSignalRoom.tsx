@@ -14,6 +14,55 @@ import { PipProvider } from "@/components/PipProvider"
 import { SignalRoomContent } from "@/components/SignalRoomContent"
 import { FREE_PAIR_SYMBOLS } from "@/lib/free-window"
 
+// ---------------------------------------------------------------------------
+// Viewer count — real session tracking + server-side social-proof display count
+// ---------------------------------------------------------------------------
+
+function getOrCreateSessionId(): string {
+  try {
+    const key = '_fsv'
+    const stored = sessionStorage.getItem(key)
+    if (stored) return stored
+    const id = Math.random().toString(36).slice(2) + Date.now().toString(36)
+    sessionStorage.setItem(key, id)
+    return id
+  } catch {
+    return Math.random().toString(36).slice(2)
+  }
+}
+
+/**
+ * Hook: registers this browser as a real viewer, then polls for the server-computed
+ * displayCount every 90 s so the number updates for everyone at the same time.
+ * All users see the exact same number — safe even when watching together onsite.
+ */
+function useViewerCount(isActive: boolean) {
+  const [displayCount, setDisplayCount] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!isActive) return
+    const sessionId = getOrCreateSessionId()
+
+    const ping = () => {
+      fetch('/api/signals/viewers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data?.displayCount != null) setDisplayCount(data.displayCount) })
+        .catch(() => {})
+    }
+
+    ping()
+    // Poll every 90 s — bucket changes every ~3 min so this catches each flip promptly.
+    const id = setInterval(ping, 90 * 1000)
+    return () => clearInterval(id)
+  }, [isActive])
+
+  return displayCount
+}
+
 type FreeStatus = {
   date: string
   inWindow: boolean
@@ -43,6 +92,9 @@ export function FreeSignalRoom() {
   const [status, setStatus] = useState<FreeStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const observedRef = useRef<Set<string>>(new Set())
+
+  // Active = inside window and not yet closed
+  const isActive = !!(status?.inWindow && !status?.closed)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -78,6 +130,8 @@ export function FreeSignalRoom() {
   const displayedSecondsUntilStart = status
     ? Math.max(0, status.secondsUntilStart - localTick)
     : 0
+
+  const viewerCount = useViewerCount(isActive)
 
   // When PipProvider reports a new signal, POST to /free-observe to increment.
   const handleNewSignal = useCallback(async (symbol: string, entryTime: string) => {
@@ -239,6 +293,19 @@ export function FreeSignalRoom() {
                   {formatCountdown(displayedSecondsUntilEnd)}
                 </span>
               </div>
+
+              {viewerCount !== null && (
+                <div className="flex items-center gap-1 text-gray-400">
+                  <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    <circle cx="12" cy="12" r="3" strokeWidth={1.8} />
+                  </svg>
+                  <span className="text-sm font-medium tabular-nums text-gray-500 transition-all duration-700">
+                    {viewerCount}
+                  </span>
+                </div>
+              )}
             </div>
 
             <Link
