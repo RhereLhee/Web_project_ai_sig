@@ -10,8 +10,8 @@ export async function POST(req: NextRequest) {
 
     logger.error(String(message || 'Client-side error').substring(0, 500), {
       context: 'client',
+      error: stack || message,
       metadata: {
-        stack: stack ? String(stack).substring(0, 1000) : undefined,
         digest: digest ? String(digest) : undefined,
         url: url ? String(url).substring(0, 300) : undefined,
         userAgent: userAgent ? String(userAgent).substring(0, 200) : undefined,
