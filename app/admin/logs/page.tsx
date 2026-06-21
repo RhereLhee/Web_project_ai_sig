@@ -149,7 +149,7 @@ export default function AdminLogsPage() {
             }`}>
               Status: {health.status}
             </div>
-            {Object.entries(health.checks).map(([key, value]) => (
+            {Object.entries(health.checks ?? {}).map(([key, value]) => (
               <div key={key} className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700">
                 {key}: {value}
               </div>
