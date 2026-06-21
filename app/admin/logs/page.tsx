@@ -210,6 +210,7 @@ export default function AdminLogsPage() {
           <option value="register">Register (สมัครสมาชิก)</option>
           <option value="payment">Payment</option>
           <option value="withdrawal">Withdrawal</option>
+          <option value="client">Client (Browser Error)</option>
           <option value="signal">Signal</option>
           <option value="system">System</option>
         </select>
