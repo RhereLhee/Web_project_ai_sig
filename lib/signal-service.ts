@@ -86,7 +86,7 @@ class SignalService {
   connect(wsUrl?: string, httpUrl?: string): void {
     // Default URL — ชี้ไปที่ API tunnel/Render. ตั้ง NEXT_PUBLIC_WS_URL
     // ใน .env.local ของแต่ละ working copy เพื่อ override.
-    const defaultWsUrl = process.env.NEXT_PUBLIC_WS_URL || 'wss://trading-api-83hs.onrender.com/ws/signal'
+    const defaultWsUrl = process.env.NEXT_PUBLIC_WS_URL || 'wss://api.techtradesignals.com/ws/signal'
 
     this.wsUrl = wsUrl || defaultWsUrl
 
